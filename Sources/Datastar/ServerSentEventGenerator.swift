@@ -15,11 +15,27 @@ public final class ServerSentEventGenerator: Sendable {
     private let continuation: AsyncStream<ArraySlice<UInt8>>.Continuation
 
     public init() {
-        var capturedContinuation: AsyncStream<ArraySlice<UInt8>>.Continuation!
-        self.body = AsyncStream<ArraySlice<UInt8>>(bufferingPolicy: .unbounded) { continuation in
-            capturedContinuation = continuation
+        let (stream, continuation) = AsyncStream<ArraySlice<UInt8>>.makeStream(
+            of: ArraySlice<UInt8>.self,
+            bufferingPolicy: .unbounded
+        )
+        self.body = stream
+        self.continuation = continuation
+    }
+
+    /// Register a handler that fires when the consumer drops the body stream
+    /// (e.g. the HTTP client disconnects) so the producer can cancel its work.
+    ///
+    /// The handler is NOT called when `finish()` runs — that path is the
+    /// producer signalling an orderly end-of-stream.
+    ///
+    /// Setting this twice replaces the previous handler.
+    public func onCancel(_ handler: @escaping @Sendable () -> Void) {
+        continuation.onTermination = { @Sendable termination in
+            if case .cancelled = termination {
+                handler()
+            }
         }
-        self.continuation = capturedContinuation
     }
 
     // MARK: - Elements
@@ -155,8 +171,10 @@ public final class ServerSentEventGenerator: Sendable {
         let bytes = SSEEncoding.encode(event)
         let result = continuation.yield(bytes[...])
         switch result {
-        case .enqueued, .dropped:
+        case .enqueued:
             return
+        case .dropped:
+            assertionFailure("Datastar uses .unbounded buffering; .dropped should be unreachable")
         case .terminated:
             throw DatastarError.streamAlreadyFinished
         @unknown default:
