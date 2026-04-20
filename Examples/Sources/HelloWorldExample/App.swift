@@ -58,18 +58,24 @@ struct HelloWorldApp {
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
 
-            Task { [sse] in
+            let producer = Task { [sse] in
                 defer { sse.finish() }
                 for i in 1...message.count {
+                    if Task.isCancelled { return }
+                    let prefix = String(message.prefix(i))
                     do {
-                        let prefix = String(message.prefix(i))
                         try sse.patchElements(#"<div id="message">\#(prefix)</div>"#)
                     } catch {
                         return
                     }
-                    try? await Task.sleep(for: .milliseconds(delayMs))
+                    do {
+                        try await Task.sleep(for: .milliseconds(delayMs))
+                    } catch {
+                        return // CancellationError — client disconnected
+                    }
                 }
             }
+            sse.onCancel { producer.cancel() }
 
             return Response(
                 status: .ok,

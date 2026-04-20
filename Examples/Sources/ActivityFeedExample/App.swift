@@ -157,18 +157,24 @@ struct ActivityFeedApp {
             let interval = max(0, min(2000, signals.interval))
 
             let sse = ServerSentEventGenerator()
-            Task { [sse] in
+            let producer = Task { [sse] in
                 defer { sse.finish() }
                 for _ in 0..<count {
+                    if Task.isCancelled { return }
                     let status = Status.allCases.randomElement() ?? .info
                     do {
                         try emit(status: status, index: signals.total + 1, signals: &signals, sse: sse)
                     } catch {
                         return
                     }
-                    try? await Task.sleep(for: .milliseconds(interval))
+                    do {
+                        try await Task.sleep(for: .milliseconds(interval))
+                    } catch {
+                        return // CancellationError — client disconnected
+                    }
                 }
             }
+            sse.onCancel { producer.cancel() }
             return streamingResponse(sse)
         }
 
