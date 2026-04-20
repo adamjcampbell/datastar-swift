@@ -65,6 +65,21 @@ let signals = try DatastarSignals.decode(
 )
 ```
 
+## Examples
+
+Runnable demos live in [`Examples/`](./Examples) as a separate Swift package (so Hummingbird doesn't leak into the library's dep graph):
+
+- `HelloWorldExample` — streams `"Hello, world!"` one character at a time with a client-configurable delay.
+- `ActivityFeedExample` — live log with reactive counters; demonstrates `patchElements` + `patchSignals` cooperating.
+
+```sh
+cd Examples
+swift run HelloWorldExample    # http://127.0.0.1:8080
+swift run ActivityFeedExample  # http://127.0.0.1:8081
+```
+
+See [`Examples/README.md`](./Examples/README.md) for details.
+
 ## Status
 
 v0.1 — core library only. Framework adapters for Vapor and Hummingbird, plus an `executeScript` convenience helper, are planned.
