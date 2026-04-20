@@ -52,15 +52,15 @@ struct HelloWorldApp {
 
         router.get("/hello-world") { request, _ -> Response in
             let raw = request.uri.queryParameters["datastar"].map(String.init) ?? #"{"delay":200}"#
-            let signals = try DatastarSignals.decode(HelloSignals.self, fromQueryValue: raw)
+            let signals = try JSONDecoder().decode(HelloSignals.self, from: Data(raw.utf8))
 
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
 
-            let body = ServerSentEventGenerator.stream { sse in
+            let body = ServerSentEventGenerator.stream { emit in
                 for i in 1...message.count {
                     let prefix = String(message.prefix(i))
-                    try await sse.patchElements(#"<div id="message">\#(prefix)</div>"#)
+                    try await emit(.patchElements(#"<div id="message">\#(prefix)</div>"#))
                     try await Task.sleep(for: .milliseconds(delayMs))
                 }
             }
