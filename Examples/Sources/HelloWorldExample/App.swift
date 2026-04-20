@@ -57,7 +57,7 @@ struct HelloWorldApp {
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
 
-            let body = ServerSentEventGenerator.stream { emit in
+            let body = DatastarSSEBody { emit in
                 for i in 1...message.count {
                     let prefix = String(message.prefix(i))
                     try await emit(.patchElements(#"<div id="message">\#(prefix)</div>"#))

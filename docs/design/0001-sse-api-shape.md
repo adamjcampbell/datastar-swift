@@ -168,3 +168,25 @@ v0.2.1 replaced an earlier bespoke `PullChannel` actor after two real bugs were 
 **Why no `removeElements` / `removeSignals` / `redirect` conveniences.** Rust doesn't ship them. Users write `.patchElements("", selector: "#x", mode: .remove)` and `.patchSignalsJSON(#"{"name":null}"#)` — one-liners, no dedicated API surface. (Datastar's client treats these cases uniformly with their non-remove counterparts; no semantic distinction at the protocol level.)
 
 **What's unchanged.** The AsyncThrowingChannel-backed rendezvous primitive (v0.2.1 postscript above still applies), the class-based `DatastarSSEBody.Iterator` with deinit cancellation, wire-format parity with the Go SDK. Public types held for parity: `ElementPatchMode`, `Namespace`, `DatastarDefaults` (spec-generated), `ServerSentEventGenerator` (ADR-mandated), `DatastarSSEBody`.
+
+---
+
+## Postscript — v0.3.1 flatten-one-layer + protocol (pre-ship)
+
+Reviewing v0.3 again against Rust with ADR ignored and Swift API Design Guidelines in hand (*"Clarity at the point of use,"* *"Omit needless words"*). Three changes:
+
+1. **Deleted the `ServerSentEventGenerator` namespace.** It was ADR-compliance only; module-level scoping (`import Datastar`) already covers it. `stream(_:)` becomes a trailing-closure init on `DatastarSSEBody` — stdlib-idiomatic, matches `AsyncStream { continuation in ... }`. `Emitter` nests under `DatastarSSEBody.Emitter`.
+2. **Added `DatastarEventConvertible` protocol.** Swift's analogue of Rust's `Into<DatastarEvent>`. Conformed-to by `DatastarEvent` and each of its three nested payload structs (`PatchElements`, `PatchSignals`, `ExecuteScript`). Unlocks both call-site styles at `emit(_:)`:
+
+   ```swift
+   try await emit(.patchElements("<p>hi</p>"))                              // enum-case shorthand
+   try await emit(DatastarEvent.PatchElements("<p>bye</p>", selector: "#x")) // explicit struct literal
+   ```
+
+   `Emitter.callAsFunction` has two overloads — one taking `DatastarEvent` concretely (so dot-syntax can resolve against the enum's static constructors) and a generic one taking `some DatastarEventConvertible` (so bare structs work). Swift picks automatically based on the argument type.
+
+3. **Normalized primary argument to positional.** `PatchElements(_ html: String, ...)`, `PatchSignals(_ json: String, ...)`, `ExecuteScript(_ script: String, ...)`. Added `PatchSignals(encoding:)` throwing init for `Encodable` values — prepositional label to avoid type-inference ambiguity with the `(_ json: String)` init.
+
+Nested payload structs stay nested under `DatastarEvent`; no top-level typealiases. Rationale: the structs semantically belong to the enum, and module-level scoping is enough. Users who want explicit construction fully-qualify `DatastarEvent.PatchElements(...)`; users who want shorthand use the case-based static constructors `.patchElements(...)`.
+
+Wire format is byte-identical — this whole postscript's changes are naming/surface only. Goldens untouched.

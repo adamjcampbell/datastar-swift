@@ -25,19 +25,19 @@ Then add `Datastar` to your target's dependencies.
 
 Datastar events are modeled as data (`DatastarEvent` values) rather than method calls on a writer. Two primary entry points:
 
-**Straight-line producer closure** — for the common case of emitting events in order. Each `try await emit(...)` suspends until the HTTP consumer reads the previous chunk, so the producer paces itself to the client automatically. If the client disconnects, the closure exits cleanly:
+**Trailing-closure init** — for the common case of emitting events in order. Each `try await emit(...)` suspends until the HTTP consumer reads the previous chunk, so the producer paces itself to the client automatically. If the client disconnects, the closure exits cleanly:
 
 ```swift
 import Datastar
 
-let body = ServerSentEventGenerator.stream { emit in
+let body = DatastarSSEBody { emit in
     try await emit(.patchElements(
         #"<div id="clock">12:00</div>"#,
         selector: "#clock",
         mode: .inner
     ))
     try await Task.sleep(for: .seconds(1))
-    try await emit(try .patchSignals(["count": 42]))
+    try await emit(try .patchSignals(encoding: ["count": 42]))
     try await emit(.executeScript("console.log('done')"))
 }
 
@@ -46,10 +46,17 @@ let body = ServerSentEventGenerator.stream { emit in
 // Content-Type: text/event-stream.
 ```
 
-**From any `AsyncSequence<DatastarEvent>`** — for event sources you already have (domain streams, file watchers, upstream APIs):
+`emit` accepts both the enum-case shorthand (`.patchElements(...)`) and the fully-qualified struct-literal form (`DatastarEvent.PatchElements(...)`):
 
 ```swift
-let events: some AsyncSequence<DatastarEvent> = domainEvents.map { .patchElements(render($0)) }
+try await emit(.patchElements("<p>hi</p>"))                            // shorthand
+try await emit(DatastarEvent.PatchElements("<p>bye</p>", selector: "#x"))  // explicit
+```
+
+**From any `AsyncSequence`** of `DatastarEventConvertible` values — for event sources you already have (domain streams, file watchers, upstream APIs):
+
+```swift
+let events = domainEvents.map { DatastarEvent.PatchElements(render($0)) }
 let body = DatastarSSEBody(events)
 ```
 

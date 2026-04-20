@@ -6,7 +6,16 @@ import Testing
 struct DatastarEventTests {
     // Helper: render a single event via stream() and collect the bytes.
     static func renderToString(_ event: DatastarEvent) async throws -> String {
-        let body = ServerSentEventGenerator.stream { emit in
+        try await renderBytes(event)
+    }
+
+    // Overload for Rust-style struct-literal call sites (PatchElements, PatchSignals, ExecuteScript):
+    static func renderToString<E: DatastarEventConvertible>(_ event: E) async throws -> String {
+        try await renderBytes(event)
+    }
+
+    private static func renderBytes(_ event: some DatastarEventConvertible) async throws -> String {
+        let body = DatastarSSEBody { emit in
             try await emit(event)
         }
         var bytes: [UInt8] = []
@@ -110,10 +119,10 @@ struct DatastarEventTests {
 
     // MARK: patchSignals
 
-    @Test("patchSignals encodes an Encodable struct as a single-line JSON signals frame")
+    @Test("patchSignals(encoding:) encodes an Encodable struct as a single-line JSON signals frame")
     func patchSignalsEncodable() async throws {
         struct Example: Encodable { let count: Int }
-        let event = try DatastarEvent.patchSignals(Example(count: 42))
+        let event = try DatastarEvent.patchSignals(encoding: Example(count: 42))
         let out = try await Self.renderToString(event)
         #expect(out == """
         event: datastar-patch-signals
@@ -121,6 +130,25 @@ struct DatastarEventTests {
 
 
         """)
+    }
+
+    @Test("PatchSignals(encoding:) init produces byte-identical output to the enum static")
+    func patchSignalsEncodableInitParity() async throws {
+        struct Example: Encodable { let count: Int }
+        let viaInit = try DatastarEvent.PatchSignals(encoding: Example(count: 42))
+        let viaStatic = try DatastarEvent.patchSignals(encoding: Example(count: 42))
+        let a = try await Self.renderToString(viaInit)
+        let b = try await Self.renderToString(viaStatic)
+        #expect(a == b)
+    }
+
+    @Test("Struct-literal call site produces same bytes as the enum-case shorthand")
+    func structLiteralParity() async throws {
+        let viaStruct = DatastarEvent.PatchElements("<p>x</p>", selector: "#t", mode: .inner)
+        let viaCase = DatastarEvent.patchElements("<p>x</p>", selector: "#t", mode: .inner)
+        let a = try await Self.renderToString(viaStruct)
+        let b = try await Self.renderToString(viaCase)
+        #expect(a == b)
     }
 
     @Test("patchSignalsJSON accepts a pre-serialized JSON string")

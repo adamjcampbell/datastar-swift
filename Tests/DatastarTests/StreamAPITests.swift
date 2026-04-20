@@ -2,13 +2,13 @@ import Foundation
 import Testing
 @testable import Datastar
 
-@Suite("ServerSentEventGenerator.stream")
+@Suite("DatastarSSEBody closure init")
 struct StreamAPITests {
     // MARK: Happy path
 
     @Test("Emits the expected sequence of frames and finishes cleanly")
     func happyPath() async throws {
-        let body = ServerSentEventGenerator.stream { emit in
+        let body = DatastarSSEBody { emit in
             try await emit(.patchElements("<p>one</p>"))
             try await emit(.patchElements("<p>two</p>"))
         }
@@ -39,11 +39,35 @@ struct StreamAPITests {
         #expect(output.contains("data: elements <p>b</p>"))
     }
 
+    @Test("DatastarSSEBody(_:) accepts a sequence of any DatastarEventConvertible element")
+    func fromAsyncSequenceOfPayloadStructs() async throws {
+        let patches = AsyncStream<DatastarEvent.PatchElements> { cont in
+            cont.yield(DatastarEvent.PatchElements("<p>a</p>"))
+            cont.yield(DatastarEvent.PatchElements("<p>b</p>"))
+            cont.finish()
+        }
+        let body = DatastarSSEBody(patches)
+        let output = try await collect(body)
+        #expect(output.contains("data: elements <p>a</p>"))
+        #expect(output.contains("data: elements <p>b</p>"))
+    }
+
+    @Test("Emitter accepts a struct literal directly (Rust-style call site)")
+    func emitStructLiteral() async throws {
+        let body = DatastarSSEBody { emit in
+            try await emit(DatastarEvent.PatchElements("<p>hi</p>"))
+            try await emit(DatastarEvent.ExecuteScript("boot()", autoRemove: false))
+        }
+        let output = try await collect(body)
+        #expect(output.contains("data: elements <p>hi</p>"))
+        #expect(output.contains("<script>boot()</script>"))
+    }
+
     // MARK: Backpressure
 
     @Test("Producer waits for the consumer (rendezvous semantics)")
     func backpressure() async throws {
-        let body = ServerSentEventGenerator.stream { emit in
+        let body = DatastarSSEBody { emit in
             for i in 1...3 {
                 try await emit(.patchElements("<p>\(i)</p>"))
             }
@@ -67,7 +91,7 @@ struct StreamAPITests {
     func consumerDropCancelsProducer() async throws {
         let producerExited = EmissionCounter()
 
-        let body = ServerSentEventGenerator.stream { emit in
+        let body = DatastarSSEBody { emit in
             defer { Task { await producerExited.bump() } }
             while true {
                 try await emit(.patchElements("<p>tick</p>"))
@@ -93,7 +117,7 @@ struct StreamAPITests {
 
     @Test("Consumer task cancellation unblocks a parked receive")
     func consumerTaskCancellationUnblocksReceive() async throws {
-        let body = ServerSentEventGenerator.stream { _ in
+        let body = DatastarSSEBody { _ in
             try await Task.sleep(for: .seconds(60))
         }
 
@@ -128,7 +152,7 @@ struct StreamAPITests {
 
     @Test("Producer errors surface on the consumer's next()")
     func producerErrorPropagates() async throws {
-        let body = ServerSentEventGenerator.stream { emit in
+        let body = DatastarSSEBody { emit in
             try await emit(.patchElements("<p>before</p>"))
             throw TestError()
         }

@@ -4,16 +4,17 @@ import Foundation
 ///
 /// Three cases matching the protocol's three user-facing event types. Users
 /// typically construct these via the ergonomic static methods
-/// (`.patchElements(...)`, `.patchSignals(...)`, `.executeScript(...)`) and
-/// emit them through either `ServerSentEventGenerator.stream { ... }` or
-/// any `AsyncSequence<DatastarEvent>` passed to `DatastarSSEBody.init`.
+/// (`.patchElements(...)`, `.patchSignals(...)`, `.executeScript(...)`) or
+/// the nested payload structs (`DatastarEvent.PatchElements(...)`), and emit
+/// them through either a `DatastarSSEBody` trailing-closure init or any
+/// `AsyncSequence` of `DatastarEventConvertible` values.
 public enum DatastarEvent: Sendable {
     case patchElements(PatchElements)
     case patchSignals(PatchSignals)
     case executeScript(ExecuteScript)
 }
 
-// MARK: - Nested struct payloads
+// MARK: - Nested payload structs
 
 extension DatastarEvent {
     public struct PatchElements: Sendable {
@@ -26,7 +27,7 @@ extension DatastarEvent {
         public var retryDuration: Duration?
 
         public init(
-            html: String,
+            _ html: String,
             selector: String? = nil,
             mode: ElementPatchMode = .outer,
             useViewTransition: Bool = false,
@@ -51,7 +52,7 @@ extension DatastarEvent {
         public var retryDuration: Duration?
 
         public init(
-            json: String,
+            _ json: String,
             onlyIfMissing: Bool = false,
             eventID: String? = nil,
             retryDuration: Duration? = nil
@@ -60,6 +61,27 @@ extension DatastarEvent {
             self.onlyIfMissing = onlyIfMissing
             self.eventID = eventID
             self.retryDuration = retryDuration
+        }
+
+        /// Serialize an `Encodable` value to JSON signals.
+        /// Prepositional label avoids type-inference ambiguity with the `(_ json: String)` init.
+        public init<Value: Encodable>(
+            encoding value: Value,
+            onlyIfMissing: Bool = false,
+            eventID: String? = nil,
+            retryDuration: Duration? = nil,
+            encoder: JSONEncoder = JSONEncoder()
+        ) throws {
+            let data = try encoder.encode(value)
+            guard let json = String(data: data, encoding: .utf8) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding)
+            }
+            self.init(
+                json,
+                onlyIfMissing: onlyIfMissing,
+                eventID: eventID,
+                retryDuration: retryDuration
+            )
         }
     }
 
@@ -73,7 +95,7 @@ extension DatastarEvent {
         public var retryDuration: Duration?
 
         public init(
-            script: String,
+            _ script: String,
             autoRemove: Bool = true,
             attributes: [String: String] = [:],
             eventID: String? = nil,
@@ -88,7 +110,7 @@ extension DatastarEvent {
     }
 }
 
-// MARK: - Ergonomic constructors
+// MARK: - Ergonomic static constructors
 
 extension DatastarEvent {
     /// Patch HTML elements into the DOM on the client.
@@ -102,7 +124,7 @@ extension DatastarEvent {
         retryDuration: Duration? = nil
     ) -> DatastarEvent {
         .patchElements(PatchElements(
-            html: html,
+            html,
             selector: selector,
             mode: mode,
             useViewTransition: useViewTransition,
@@ -113,22 +135,19 @@ extension DatastarEvent {
     }
 
     /// Patch signals by encoding an `Encodable` value as JSON.
-    public static func patchSignals<T: Encodable>(
-        _ value: T,
+    public static func patchSignals<Value: Encodable>(
+        encoding value: Value,
         onlyIfMissing: Bool = false,
         eventID: String? = nil,
         retryDuration: Duration? = nil,
         encoder: JSONEncoder = JSONEncoder()
     ) throws -> DatastarEvent {
-        let data = try encoder.encode(value)
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding)
-        }
-        return .patchSignals(PatchSignals(
-            json: json,
+        .patchSignals(try PatchSignals(
+            encoding: value,
             onlyIfMissing: onlyIfMissing,
             eventID: eventID,
-            retryDuration: retryDuration
+            retryDuration: retryDuration,
+            encoder: encoder
         ))
     }
 
@@ -140,7 +159,7 @@ extension DatastarEvent {
         retryDuration: Duration? = nil
     ) -> DatastarEvent {
         .patchSignals(PatchSignals(
-            json: json,
+            json,
             onlyIfMissing: onlyIfMissing,
             eventID: eventID,
             retryDuration: retryDuration
@@ -157,7 +176,7 @@ extension DatastarEvent {
         retryDuration: Duration? = nil
     ) -> DatastarEvent {
         .executeScript(ExecuteScript(
-            script: script,
+            script,
             autoRemove: autoRemove,
             attributes: attributes,
             eventID: eventID,
@@ -166,11 +185,38 @@ extension DatastarEvent {
     }
 }
 
+// MARK: - DatastarEventConvertible
+
+/// A type that can be converted to a `DatastarEvent`.
+///
+/// Lets `DatastarSSEBody.Emitter` and `DatastarSSEBody.init(_ events:)` accept
+/// both the enum's case shorthand (e.g. `.patchElements(...)`) and bare
+/// payload structs (e.g. `DatastarEvent.PatchElements(...)`) uniformly.
+public protocol DatastarEventConvertible: Sendable {
+    func toDatastarEvent() -> DatastarEvent
+}
+
+extension DatastarEvent: DatastarEventConvertible {
+    public func toDatastarEvent() -> DatastarEvent { self }
+}
+
+extension DatastarEvent.PatchElements: DatastarEventConvertible {
+    public func toDatastarEvent() -> DatastarEvent { .patchElements(self) }
+}
+
+extension DatastarEvent.PatchSignals: DatastarEventConvertible {
+    public func toDatastarEvent() -> DatastarEvent { .patchSignals(self) }
+}
+
+extension DatastarEvent.ExecuteScript: DatastarEventConvertible {
+    public func toDatastarEvent() -> DatastarEvent { .executeScript(self) }
+}
+
 // MARK: - Wire-format conversion (internal)
 
 extension DatastarEvent {
-    /// Convert to the internal wire-format SSE event. Consumed by
-    /// `DatastarSSEBody.Iterator` during emission.
+    /// Build the wire-format SSE event. Consumed by `DatastarSSEBody.Iterator`
+    /// during emission.
     internal func toWireEvent() -> SSEEvent {
         switch self {
         case .patchElements(let p): return p.toWireEvent()
@@ -244,7 +290,7 @@ extension DatastarEvent.ExecuteScript {
         tag += ">\(script)</script>"
 
         let patch = DatastarEvent.PatchElements(
-            html: tag,
+            tag,
             selector: "body",
             mode: .append,
             eventID: eventID,

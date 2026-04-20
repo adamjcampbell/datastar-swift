@@ -99,7 +99,7 @@ private func appendActivity(
     status: Status,
     index: Int,
     signals: inout ActivitySignals,
-    emit: ServerSentEventGenerator.Emitter
+    emit: DatastarSSEBody.Emitter
 ) async throws {
     signals.bump(status)
     try await emit(.patchElements(
@@ -107,7 +107,7 @@ private func appendActivity(
         selector: "#feed",
         mode: .prepend
     ))
-    try await emit(try .patchSignals(signals))
+    try await emit(try .patchSignals(encoding: signals))
 }
 
 private func readSignals(from request: Request) async throws -> ActivitySignals {
@@ -146,7 +146,7 @@ struct ActivityFeedApp {
         for status in Status.allCases {
             router.post("/event/\(status.rawValue)") { request, _ -> Response in
                 let initialSignals = try await readSignals(from: request)
-                let body = ServerSentEventGenerator.stream { emit in
+                let body = DatastarSSEBody { emit in
                     var signals = initialSignals
                     try await appendActivity(status: status, index: signals.total + 1, signals: &signals, emit: emit)
                 }
@@ -159,7 +159,7 @@ struct ActivityFeedApp {
             let count = max(1, min(50, initialSignals.count))
             let interval = max(0, min(2000, initialSignals.interval))
 
-            let body = ServerSentEventGenerator.stream { emit in
+            let body = DatastarSSEBody { emit in
                 var signals = initialSignals
                 for _ in 0..<count {
                     let status = Status.allCases.randomElement() ?? .info
