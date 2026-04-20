@@ -150,3 +150,21 @@ v0.2.1 replaced an earlier bespoke `PullChannel` actor after two real bugs were 
 **Why this choice is forward-compatible.** The channel's rendezvous backpressure becomes load-bearing the moment we ship a long-running example — a ticker, chat feed, progress stream, live log, anything that emits indefinitely. On the stdlib stream, a slow or backgrounded client would balloon server memory (unbounded policy) or silently corrupt the UI (bounded-drop policies). On the channel, the producer simply parks; if the consumer truly disappears, the iterator's deinit fires, the producer is cancelled, no leak. **Adding long-running example(s) in v0.3 requires no changes to the primitive or to `SSEWriter` / `DatastarSSEBody` / `stream(_:)`.** Just write the example.
 
 **When we'd revisit.** If the swift-async-algorithms dependency becomes a problem (CVEs, breaking changes, build-time cost) OR if we conclude after a few releases that we'll never ship a long-running example and want to trim deps, the swap to `AsyncThrowingStream.makeStream` is a clean patch-level change — the public API (`SSEWriter`, `DatastarSSEBody`, `stream(_:)`) is stable across either implementation. Neither trigger is imminent; Apple is actively maintaining swift-async-algorithms and we do intend long-running examples.
+
+---
+
+## Postscript — v0.3 value-oriented redesign (pre-ship)
+
+**Context.** A full review against Go, TypeScript, Python, and Rust SDKs surfaced that our v0.2.1 had two public entry points (pull-closure + push-class). No other SDK does this. We haven't cut a release, so there are no breaking-change concerns.
+
+**What changed.** Dropped the push class. Replaced `SSEWriter` (methods-on-an-opaque-handle) with `DatastarEvent` — an enum with three cases (`patchElements`, `patchSignals`, `executeScript`) + nested struct payloads. Users construct events as values, either through ergonomic static methods (`.patchElements(...)`) or by building the struct directly. `ServerSentEventGenerator.stream(_:)` stays as the straight-line-closure entry point, but now hands an `Emitter` that takes a `DatastarEvent` value instead of exposing typed methods. A new `DatastarSSEBody.init(_:)` accepts any `AsyncSequence<DatastarEvent>` so callers with existing event streams don't need the stream helper.
+
+**Why value-oriented.** Matches Rust (`PatchElements`, `PatchSignals`, `ExecuteScript` structs + `DatastarEvent` trait) and Python (yield `SSEEvent` values). Events become inspectable, testable, and composable — users can `map`/`filter`/`merge` sequences of events using existing AsyncSequence operators before handing them off.
+
+**Why drop the push class.** No user shipped, and no other SDK has a "keep the handle around past a scoped closure" pattern. `stream { emit in ... }` covers the straight-line case; `DatastarSSEBody(mySequence)` covers the "events come from somewhere else" case. The observer/middleware use case the push class targeted isn't meaningfully different from "hand the middleware your emitter or your domain event stream."
+
+**Why drop `DatastarSignals`.** Rust's framework-agnostic core has no equivalent; `axum.rs`/`rocket.rs`/`warp.rs` each provide their own `ReadSignals<T>` extractor. We'll ship the same pattern in `DatastarHummingbird`/`DatastarVapor` adapters. Until then, users outside a framework adapter call `JSONDecoder` directly — one line, no abstraction cost.
+
+**Why no `removeElements` / `removeSignals` / `redirect` conveniences.** Rust doesn't ship them. Users write `.patchElements("", selector: "#x", mode: .remove)` and `.patchSignalsJSON(#"{"name":null}"#)` — one-liners, no dedicated API surface. (Datastar's client treats these cases uniformly with their non-remove counterparts; no semantic distinction at the protocol level.)
+
+**What's unchanged.** The AsyncThrowingChannel-backed rendezvous primitive (v0.2.1 postscript above still applies), the class-based `DatastarSSEBody.Iterator` with deinit cancellation, wire-format parity with the Go SDK. Public types held for parity: `ElementPatchMode`, `Namespace`, `DatastarDefaults` (spec-generated), `ServerSentEventGenerator` (ADR-mandated), `DatastarSSEBody`.

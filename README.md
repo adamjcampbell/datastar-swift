@@ -2,7 +2,7 @@
 
 A Swift SDK for [Datastar](https://data-star.dev) — the hypermedia-driven framework that unifies server-rendered HTML with reactive client-side signals over Server-Sent Events.
 
-This package provides a framework-agnostic core: an SSE event generator that emits the Datastar v1 wire format, plus helpers for decoding client-sent signals. It has no runtime dependencies and can be plugged into any Swift HTTP server (Vapor, Hummingbird, swift-nio, or a handwritten one).
+This package provides a framework-agnostic core: a value-oriented Datastar-event API that emits the Datastar v1 wire format as an `AsyncSequence` of bytes, ready to plug into any Swift HTTP server (Vapor, Hummingbird, swift-nio, or a handwritten one).
 
 ## Requirements
 
@@ -23,19 +23,22 @@ Then add `Datastar` to your target's dependencies.
 
 ### Emit SSE events
 
-Write a straight-line producer closure. Each `try await sse.patchElements(...)` / `sse.patchSignals(...)` call suspends until the HTTP consumer reads the previous chunk, so the producer paces itself to the client automatically. If the client disconnects, the next emit throws `CancellationError` and the closure exits:
+Datastar events are modeled as data (`DatastarEvent` values) rather than method calls on a writer. Two primary entry points:
+
+**Straight-line producer closure** — for the common case of emitting events in order. Each `try await emit(...)` suspends until the HTTP consumer reads the previous chunk, so the producer paces itself to the client automatically. If the client disconnects, the closure exits cleanly:
 
 ```swift
 import Datastar
 
-let body = ServerSentEventGenerator.stream { sse in
-    try await sse.patchElements(
+let body = ServerSentEventGenerator.stream { emit in
+    try await emit(.patchElements(
         #"<div id="clock">12:00</div>"#,
         selector: "#clock",
         mode: .inner
-    )
+    ))
     try await Task.sleep(for: .seconds(1))
-    try await sse.patchSignals(["count": 42])
+    try await emit(try .patchSignals(["count": 42]))
+    try await emit(.executeScript("console.log('done')"))
 }
 
 // Hand `body` (a DatastarSSEBody — an AsyncSequence<ArraySlice<UInt8>>)
@@ -43,44 +46,46 @@ let body = ServerSentEventGenerator.stream { sse in
 // Content-Type: text/event-stream.
 ```
 
-### Advanced: handle-based API (escape hatch)
-
-For patterns where the event source is not a straight-line producer — e.g. handing the generator to an external observer (pub/sub, database watcher, middleware) — use the handle-based class:
+**From any `AsyncSequence<DatastarEvent>`** — for event sources you already have (domain streams, file watchers, upstream APIs):
 
 ```swift
-let sse = ServerSentEventGenerator()
-// Register onCancel to learn when the client disconnects.
-sse.onCancel { /* cancel whatever produced events */ }
-
-// From any task, synchronously:
-try sse.patchElements(#"<div id="live">update</div>"#)
-try sse.patchSignals(["count": 42])
-sse.finish()
-
-// `sse.body` is an AsyncStream<ArraySlice<UInt8>> — plug it into your
-// framework's streaming response the same way.
+let events: some AsyncSequence<DatastarEvent> = domainEvents.map { .patchElements(render($0)) }
+let body = DatastarSSEBody(events)
 ```
 
-Use the pull API (`stream { ... }`) by default. Reach for the class only when you genuinely need the sse handle to outlive a single closure.
+### Events
 
-### Decode signals from a request
+Three cases, matching the Rust SDK's first-class event types:
+
+- `.patchElements(html, selector:, mode:, ...)` — patch HTML into the DOM.
+- `.patchSignals(value)` / `.patchSignalsJSON(json)` — update client signals.
+- `.executeScript(script, autoRemove:, attributes:, ...)` — run JavaScript (sugar over `patchElements`).
+
+Removals are expressed via the core events — no dedicated helpers:
+
+```swift
+// Remove a DOM element:
+try await emit(.patchElements("", selector: "#gone", mode: .remove))
+
+// Remove (null out) client signals:
+try await emit(.patchSignalsJSON(#"{"stale":null}"#))
+```
+
+### Decoding signals from a request
+
+The framework-agnostic core does NOT ship a request-side signals helper. The Datastar protocol splits signal transport by HTTP method (query param `datastar` for GET/DELETE, JSON body for others); framework-specific adapters (planned for a later release) will provide method-aware extractors. Until then, decode directly with `JSONDecoder`:
 
 ```swift
 struct MySignals: Decodable {
     var count: Int
 }
 
-// For POST/PUT/PATCH — raw JSON body:
-let signals = try DatastarSignals.decode(
-    MySignals.self,
-    fromBody: requestBody
-)
+// POST/PUT/PATCH — raw JSON body:
+let signals = try JSONDecoder().decode(MySignals.self, from: requestBody)
 
-// For GET/DELETE — the `datastar` query parameter value:
-let signals = try DatastarSignals.decode(
-    MySignals.self,
-    fromQueryValue: query["datastar"] ?? ""
-)
+// GET/DELETE — the `datastar` query parameter value:
+let raw = queryParameter("datastar") ?? "{}"
+let signals = try JSONDecoder().decode(MySignals.self, from: Data(raw.utf8))
 ```
 
 ## Examples
@@ -100,7 +105,7 @@ See [`Examples/README.md`](./Examples/README.md) for details.
 
 ## Status
 
-v0.2 — pull-based `stream { ... }` API is the primary entry point; the handle-based class remains as an escape hatch for observer/middleware patterns. Framework adapters for Vapor and Hummingbird, plus an `executeScript` convenience helper, are planned.
+v0.3 — value-oriented API around `DatastarEvent` (pre-ship; no releases yet). Framework adapters for Vapor and Hummingbird — including method-aware `ReadSignals` extractors — are planned for a follow-up release.
 
 ## License
 
