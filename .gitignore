@@ -6,3 +6,6 @@ Package.resolved
 .vscode/
 xcuserdata/
 DerivedData/
+
+# Headless-browser verification harness (local only, not committed)
+/verify/

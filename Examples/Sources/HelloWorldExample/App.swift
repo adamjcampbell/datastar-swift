@@ -21,8 +21,8 @@ private let indexHTML = """
     <h1>datastar-swift — Hello World</h1>
     <p>
         Delay (ms):
-        <input type="number" data-bind-delay min="0" max="2000" step="50" />
-        <button data-on-click="@get('/hello-world')">Start</button>
+        <input type="number" data-bind:delay min="0" max="2000" step="50" />
+        <button data-on:click="@get('/hello-world')">Start</button>
     </p>
     <div id="message"></div>
     <p style="color:#666; font-size:0.875rem;">
