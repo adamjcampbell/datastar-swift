@@ -30,15 +30,17 @@ import AsyncAlgorithms
 public struct DatastarSSEBody: AsyncSequence, Sendable {
     public typealias Element = ArraySlice<UInt8>
     public typealias Failure = any Error
+    public typealias AsyncIterator =
+        AsyncThrowingChannel<ArraySlice<UInt8>, any Error>.AsyncIterator
 
-    private let channel: AsyncThrowingChannel<DatastarEvent, any Error>
-    private let producer: Task<Void, Never>
+    private let channel: AsyncThrowingChannel<ArraySlice<UInt8>, any Error>
+    private let _taskLifetime: TaskHolder
 
     /// Designated init — straight-line producer closure with full backpressure.
     public init(_ produce: @Sendable @escaping (Emitter) async throws -> Void) {
-        let channel = AsyncThrowingChannel<DatastarEvent, any Error>()
+        let channel = AsyncThrowingChannel<ArraySlice<UInt8>, any Error>()
         self.channel = channel
-        self.producer = Task {
+        let task = Task {
             do {
                 try await produce(Emitter(channel: channel))
                 channel.finish()
@@ -48,6 +50,7 @@ public struct DatastarSSEBody: AsyncSequence, Sendable {
                 channel.fail(error)
             }
         }
+        self._taskLifetime = TaskHolder(task)
     }
 
     /// Convenience init — adapts any `AsyncSequence` of convertibles by
@@ -62,37 +65,18 @@ public struct DatastarSSEBody: AsyncSequence, Sendable {
     }
 
     public func makeAsyncIterator() -> AsyncIterator {
-        AsyncIterator(iter: channel.makeAsyncIterator(), producer: producer)
-    }
-
-    public final class AsyncIterator: AsyncIteratorProtocol {
-        var iter: AsyncThrowingChannel<DatastarEvent, any Error>.AsyncIterator
-        let producer: Task<Void, Never>
-
-        init(
-            iter: AsyncThrowingChannel<DatastarEvent, any Error>.AsyncIterator,
-            producer: Task<Void, Never>
-        ) {
-            self.iter = iter
-            self.producer = producer
-        }
-
-        public func next() async throws -> ArraySlice<UInt8>? {
-            try await iter.next().map { SSEEncoding.encode($0.toWireEvent())[...] }
-        }
-
-        deinit { producer.cancel() }
+        channel.makeAsyncIterator()
     }
 
     /// Handed to the closure passed into `DatastarSSEBody { emit in ... }`.
-    /// Accepts the enum-case shorthand (`.patchElements(...)`) via the
+    /// Accepts either the enum-case shorthand (`.patchElements(...)`) via the
     /// concrete overload, or any bare payload struct
     /// (`DatastarEvent.PatchElements(...)`) via the generic overload.
     public struct Emitter: Sendable {
-        let channel: AsyncThrowingChannel<DatastarEvent, any Error>
+        let channel: AsyncThrowingChannel<ArraySlice<UInt8>, any Error>
 
         public func callAsFunction(_ event: DatastarEvent) async throws {
-            await channel.send(event)
+            await channel.send(SSEEncoding.encode(event.toWireEvent())[...])
             try Task.checkCancellation()
         }
 
@@ -100,4 +84,13 @@ public struct DatastarSSEBody: AsyncSequence, Sendable {
             try await self(event.toDatastarEvent())
         }
     }
+}
+
+/// Private reference-counted anchor. When the last `DatastarSSEBody` holding
+/// this is dropped, `deinit` fires and cancels the producer Task — preventing
+/// the task from staying parked on `channel.send` forever.
+private final class TaskHolder: Sendable {
+    let task: Task<Void, Never>
+    init(_ task: Task<Void, Never>) { self.task = task }
+    deinit { task.cancel() }
 }

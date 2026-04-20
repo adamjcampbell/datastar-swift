@@ -87,23 +87,25 @@ struct StreamAPITests {
 
     // MARK: Cancellation
 
-    @Test("Consumer dropping the iterator cancels the producer closure and releases it")
+    @Test("Dropping the body cancels the producer closure and releases it")
     func consumerDropCancelsProducer() async throws {
         let producerExited = EmissionCounter()
 
-        let body = DatastarSSEBody { emit in
-            defer { Task { await producerExited.bump() } }
-            while true {
-                try await emit(.patchElements("<p>tick</p>"))
-                try await Task.sleep(for: .milliseconds(1))
+        do {
+            let body = DatastarSSEBody { emit in
+                defer { Task { await producerExited.bump() } }
+                while true {
+                    try await emit(.patchElements("<p>tick</p>"))
+                    try await Task.sleep(for: .milliseconds(1))
+                }
             }
-        }
 
-        var count = 0
-        for try await _ in body {
-            count += 1
-            if count == 3 { break }
-        }
+            var count = 0
+            for try await _ in body {
+                count += 1
+                if count == 3 { break }
+            }
+        } // body leaves scope here, TaskHolder is released, producer Task is cancelled
 
         var exitedCount = 0
         for _ in 0..<50 {
@@ -112,7 +114,7 @@ struct StreamAPITests {
             if exitedCount > 0 { break }
         }
         #expect(exitedCount == 1,
-                "producer closure must exit after the consumer drops the iterator (did not exit within 500ms)")
+                "producer closure must exit after the body is released (did not exit within 500ms)")
     }
 
     @Test("Consumer task cancellation unblocks a parked receive")
