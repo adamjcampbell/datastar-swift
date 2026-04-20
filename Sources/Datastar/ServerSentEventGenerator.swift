@@ -60,31 +60,15 @@ public final class ServerSentEventGenerator: Sendable {
         eventID: String? = nil,
         retryDuration: Duration? = nil
     ) throws {
-        var data: [String] = []
-        if let selector, !selector.isEmpty {
-            data.append(DatalineLiteral.selector + selector)
-        }
-        if mode != .default {
-            data.append(DatalineLiteral.mode + mode.rawValue)
-        }
-        if namespace != .default {
-            data.append(DatalineLiteral.namespace + namespace.rawValue)
-        }
-        if useViewTransition != DatastarDefaults.elementsUseViewTransitions {
-            data.append(DatalineLiteral.useViewTransition + String(useViewTransition))
-        }
-        if !html.isEmpty {
-            for line in html.split(separator: "\n", omittingEmptySubsequences: false) {
-                data.append(DatalineLiteral.elements + String(line))
-            }
-        }
-
         try send(
-            SSEEvent(
-                name: DatastarEventType.patchElements.rawValue,
-                id: eventID,
-                retry: retryDuration,
-                data: data
+            SSEFrame.patchElements(
+                html: html,
+                selector: selector,
+                mode: mode,
+                useViewTransition: useViewTransition,
+                namespace: namespace,
+                eventID: eventID,
+                retryDuration: retryDuration
             )
         )
     }
@@ -114,17 +98,7 @@ public final class ServerSentEventGenerator: Sendable {
         retryDuration: Duration? = nil,
         encoder: JSONEncoder = JSONEncoder()
     ) throws {
-        let data: Data
-        do {
-            data = try encoder.encode(signals)
-        } catch {
-            throw DatastarError.encodingFailed(underlying: error)
-        }
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw DatastarError.encodingFailed(
-                underlying: CocoaError(.fileReadInapplicableStringEncoding)
-            )
-        }
+        let json = try SSEFrame.encodeSignals(signals, encoder: encoder)
         try patchSignalsJSON(
             json,
             onlyIfMissing: onlyIfMissing,
@@ -140,20 +114,12 @@ public final class ServerSentEventGenerator: Sendable {
         eventID: String? = nil,
         retryDuration: Duration? = nil
     ) throws {
-        var data: [String] = []
-        if onlyIfMissing != DatastarDefaults.patchSignalsOnlyIfMissing {
-            data.append(DatalineLiteral.onlyIfMissing + String(onlyIfMissing))
-        }
-        for line in json.split(separator: "\n", omittingEmptySubsequences: false) {
-            data.append(DatalineLiteral.signals + String(line))
-        }
-
         try send(
-            SSEEvent(
-                name: DatastarEventType.patchSignals.rawValue,
-                id: eventID,
-                retry: retryDuration,
-                data: data
+            SSEFrame.patchSignalsJSON(
+                json: json,
+                onlyIfMissing: onlyIfMissing,
+                eventID: eventID,
+                retryDuration: retryDuration
             )
         )
     }
@@ -163,6 +129,47 @@ public final class ServerSentEventGenerator: Sendable {
     /// Close the body stream so the HTTP response ends. Idempotent.
     public func finish() {
         continuation.finish()
+    }
+
+    // MARK: - Pull API (v0.2 primary)
+
+    /// Run a straight-line producer closure and get back an `AsyncSequence` of
+    /// SSE bytes suitable for a streaming HTTP response body.
+    ///
+    /// Inside the closure, each `try await sse.patchElements(...)` /
+    /// `sse.patchSignals(...)` call suspends until the body consumer reads the
+    /// previous chunk, giving automatic backpressure. If the consumer
+    /// disconnects, the next emit throws `CancellationError`, the closure
+    /// exits, and the stream terminates cleanly.
+    ///
+    /// ```swift
+    /// let body = ServerSentEventGenerator.stream { sse in
+    ///     try await sse.patchElements(#"<div id="clock">12:00</div>"#, selector: "#clock", mode: .inner)
+    ///     try await Task.sleep(for: .seconds(1))
+    ///     try await sse.patchSignals(["count": 42])
+    /// }
+    /// // hand `body` to your framework's streaming response
+    /// ```
+    ///
+    /// Use this for the common case. For handle-holder patterns (external
+    /// observers, middleware, multi-producer), reach for the class-based
+    /// API (`init()` + `sse.body`) instead.
+    public static func stream(
+        _ produce: @Sendable @escaping (SSEWriter) async throws -> Void
+    ) -> DatastarSSEBody {
+        let channel = PullChannel<ArraySlice<UInt8>>()
+        let writer = SSEWriter(channel: channel)
+        Task {
+            do {
+                try await produce(writer)
+                await channel.finish(throwing: nil)
+            } catch is CancellationError {
+                await channel.finish(throwing: nil)
+            } catch {
+                await channel.finish(throwing: error)
+            }
+        }
+        return DatastarSSEBody(channel: channel)
     }
 
     // MARK: - Internal
