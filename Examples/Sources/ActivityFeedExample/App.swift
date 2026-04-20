@@ -29,18 +29,18 @@ private let indexHTML = """
 
     <p>
         Bulk:
-        count <input type="number" data-bind-count min="1" max="50" style="width:4rem" />
+        count <input type="number" data-bind:count min="1" max="50" style="width:4rem" />
         ×
-        interval <input type="number" data-bind-interval min="0" max="2000" step="50" style="width:5rem" /> ms
-        <button data-on-click="@post('/event/generate')">Generate</button>
+        interval <input type="number" data-bind:interval min="0" max="2000" step="50" style="width:5rem" /> ms
+        <button data-on:click="@post('/event/generate')">Generate</button>
     </p>
 
     <p>
         Single:
-        <button data-on-click="@post('/event/done')">done</button>
-        <button data-on-click="@post('/event/warn')">warn</button>
-        <button data-on-click="@post('/event/fail')">fail</button>
-        <button data-on-click="@post('/event/info')">info</button>
+        <button data-on:click="@post('/event/done')">done</button>
+        <button data-on:click="@post('/event/warn')">warn</button>
+        <button data-on:click="@post('/event/fail')">fail</button>
+        <button data-on:click="@post('/event/info')">info</button>
     </p>
 
     <div class="counters">
