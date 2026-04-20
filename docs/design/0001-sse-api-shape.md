@@ -133,3 +133,20 @@ Examples and README lead with `stream { sse in ... }`. The class-based `make()` 
 **Adopt both APIs in v0.2, with pull as the primary and push retained as a documented escape hatch.** The limits identified above are real but narrow, and all have reasonable workarounds on the pull side when you genuinely need them. The ergonomics and safety wins for the common case (straight-line producers, which dominates the Rust SDK's examples, our own examples, and the patterns expected by Datastar users) justify leading with pull.
 
 Follow-up issue should reference this document and implement the v0.2 API per the sketch above.
+
+---
+
+## Postscript — v0.2.1 primitive choice
+
+**What we shipped:** `ServerSentEventGenerator.stream(_:)` is backed by `AsyncThrowingChannel` from [apple/swift-async-algorithms](https://github.com/apple/swift-async-algorithms) (1.1+), with a small class-based iterator on `DatastarSSEBody` whose `deinit` cancels the producer Task when the consumer drops the iterator.
+
+v0.2.1 replaced an earlier bespoke `PullChannel` actor after two real bugs were found (orphaned continuation on consumer task-cancel; leaked producer Task on iterator drop). The channel primitive closes both.
+
+**Alternative considered: `AsyncThrowingStream.makeStream` (stdlib).** Zero-dep, ~15 LOC shorter, has a clean `continuation.onTermination` hook that would let us skip the class-iterator trick. Rejected because:
+
+- `AsyncThrowingStream` has **no real backpressure**. `.unbounded` grows memory without limit if the consumer stalls; `.bufferingNewest(n)` / `.bufferingOldest(n)` silently drop SSE frames, which would corrupt the Datastar client's DOM state (every `datastar-patch-elements` frame is protocol-significant — dropped frames are not recoverable).
+- For short, bounded-iteration producers (today's HelloWorld and ActivityFeed), either primitive works equivalently. The channel's backpressure is latent safety, not currently exercised.
+
+**Why this choice is forward-compatible.** The channel's rendezvous backpressure becomes load-bearing the moment we ship a long-running example — a ticker, chat feed, progress stream, live log, anything that emits indefinitely. On the stdlib stream, a slow or backgrounded client would balloon server memory (unbounded policy) or silently corrupt the UI (bounded-drop policies). On the channel, the producer simply parks; if the consumer truly disappears, the iterator's deinit fires, the producer is cancelled, no leak. **Adding long-running example(s) in v0.3 requires no changes to the primitive or to `SSEWriter` / `DatastarSSEBody` / `stream(_:)`.** Just write the example.
+
+**When we'd revisit.** If the swift-async-algorithms dependency becomes a problem (CVEs, breaking changes, build-time cost) OR if we conclude after a few releases that we'll never ship a long-running example and want to trim deps, the swap to `AsyncThrowingStream.makeStream` is a clean patch-level change — the public API (`SSEWriter`, `DatastarSSEBody`, `stream(_:)`) is stable across either implementation. Neither trigger is imminent; Apple is actively maintaining swift-async-algorithms and we do intend long-running examples.
