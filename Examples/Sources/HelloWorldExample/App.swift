@@ -54,28 +54,16 @@ struct HelloWorldApp {
             let raw = request.uri.queryParameters["datastar"].map(String.init) ?? #"{"delay":200}"#
             let signals = try DatastarSignals.decode(HelloSignals.self, fromQueryValue: raw)
 
-            let sse = ServerSentEventGenerator()
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
 
-            let producer = Task { [sse] in
-                defer { sse.finish() }
+            let body = ServerSentEventGenerator.stream { sse in
                 for i in 1...message.count {
-                    if Task.isCancelled { return }
                     let prefix = String(message.prefix(i))
-                    do {
-                        try sse.patchElements(#"<div id="message">\#(prefix)</div>"#)
-                    } catch {
-                        return
-                    }
-                    do {
-                        try await Task.sleep(for: .milliseconds(delayMs))
-                    } catch {
-                        return // CancellationError — client disconnected
-                    }
+                    try await sse.patchElements(#"<div id="message">\#(prefix)</div>"#)
+                    try await Task.sleep(for: .milliseconds(delayMs))
                 }
             }
-            sse.onCancel { producer.cancel() }
 
             return Response(
                 status: .ok,
@@ -83,7 +71,7 @@ struct HelloWorldApp {
                     .contentType: "text/event-stream",
                     .cacheControl: "no-cache",
                 ],
-                body: ResponseBody(asyncSequence: sse.body.map { ByteBuffer(bytes: $0) })
+                body: ResponseBody(asyncSequence: body.map { ByteBuffer(bytes: $0) })
             )
         }
 

@@ -99,11 +99,11 @@ private func emit(
     status: Status,
     index: Int,
     signals: inout ActivitySignals,
-    sse: ServerSentEventGenerator
-) throws {
+    sse: SSEWriter
+) async throws {
     signals.bump(status)
-    try sse.patchElements(entryHTML(status: status, index: index), selector: "#feed", mode: .prepend)
-    try sse.patchSignals(signals)
+    try await sse.patchElements(entryHTML(status: status, index: index), selector: "#feed", mode: .prepend)
+    try await sse.patchSignals(signals)
 }
 
 private func readSignals(from request: Request) async throws -> ActivitySignals {
@@ -115,14 +115,14 @@ private func readSignals(from request: Request) async throws -> ActivitySignals 
     return try DatastarSignals.decode(ActivitySignals.self, fromBody: bytes)
 }
 
-private func streamingResponse(_ sse: ServerSentEventGenerator) -> Response {
+private func streamingResponse(_ body: DatastarSSEBody) -> Response {
     Response(
         status: .ok,
         headers: [
             .contentType: "text/event-stream",
             .cacheControl: "no-cache",
         ],
-        body: ResponseBody(asyncSequence: sse.body.map { ByteBuffer(bytes: $0) })
+        body: ResponseBody(asyncSequence: body.map { ByteBuffer(bytes: $0) })
     )
 }
 
@@ -141,41 +141,29 @@ struct ActivityFeedApp {
 
         for status in Status.allCases {
             router.post("/event/\(status.rawValue)") { request, _ -> Response in
-                var signals = try await readSignals(from: request)
-                let sse = ServerSentEventGenerator()
-                Task { [sse] in
-                    defer { sse.finish() }
-                    try? emit(status: status, index: signals.total + 1, signals: &signals, sse: sse)
+                let initialSignals = try await readSignals(from: request)
+                let body = ServerSentEventGenerator.stream { sse in
+                    var signals = initialSignals
+                    try await emit(status: status, index: signals.total + 1, signals: &signals, sse: sse)
                 }
-                return streamingResponse(sse)
+                return streamingResponse(body)
             }
         }
 
         router.post("/event/generate") { request, _ -> Response in
-            var signals = try await readSignals(from: request)
-            let count = max(1, min(50, signals.count))
-            let interval = max(0, min(2000, signals.interval))
+            let initialSignals = try await readSignals(from: request)
+            let count = max(1, min(50, initialSignals.count))
+            let interval = max(0, min(2000, initialSignals.interval))
 
-            let sse = ServerSentEventGenerator()
-            let producer = Task { [sse] in
-                defer { sse.finish() }
+            let body = ServerSentEventGenerator.stream { sse in
+                var signals = initialSignals
                 for _ in 0..<count {
-                    if Task.isCancelled { return }
                     let status = Status.allCases.randomElement() ?? .info
-                    do {
-                        try emit(status: status, index: signals.total + 1, signals: &signals, sse: sse)
-                    } catch {
-                        return
-                    }
-                    do {
-                        try await Task.sleep(for: .milliseconds(interval))
-                    } catch {
-                        return // CancellationError — client disconnected
-                    }
+                    try await emit(status: status, index: signals.total + 1, signals: &signals, sse: sse)
+                    try await Task.sleep(for: .milliseconds(interval))
                 }
             }
-            sse.onCancel { producer.cancel() }
-            return streamingResponse(sse)
+            return streamingResponse(body)
         }
 
         let app = Application(
