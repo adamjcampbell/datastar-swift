@@ -1,3 +1,4 @@
+import AsyncAlgorithms
 import Foundation
 
 /// Emits Datastar v1 Server-Sent Events.
@@ -157,19 +158,19 @@ public final class ServerSentEventGenerator: Sendable {
     public static func stream(
         _ produce: @Sendable @escaping (SSEWriter) async throws -> Void
     ) -> DatastarSSEBody {
-        let channel = PullChannel<ArraySlice<UInt8>>()
+        let channel = AsyncThrowingChannel<ArraySlice<UInt8>, any Error>()
         let writer = SSEWriter(channel: channel)
-        Task {
+        let producer = Task {
             do {
                 try await produce(writer)
-                await channel.finish(throwing: nil)
+                channel.finish()
             } catch is CancellationError {
-                await channel.finish(throwing: nil)
+                channel.finish()
             } catch {
-                await channel.finish(throwing: error)
+                channel.fail(error)
             }
         }
-        return DatastarSSEBody(channel: channel)
+        return DatastarSSEBody(channel: channel, producer: producer)
     }
 
     // MARK: - Internal

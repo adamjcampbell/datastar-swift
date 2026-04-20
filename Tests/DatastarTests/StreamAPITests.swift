@@ -95,30 +95,73 @@ struct StreamAPITests {
 
     // MARK: Cancellation
 
-    @Test("Cancelling the consumer task cancels the producer closure")
-    func consumerCancellation() async throws {
-        // Record how many emissions completed before cancellation fires.
-        let emissions = EmissionCounter()
+    @Test("Consumer dropping the iterator cancels the producer closure and releases it")
+    func consumerDropCancelsProducer() async throws {
+        // The producer closure signals when it exits via this flag — proves
+        // the Task actually terminates rather than being silently parked forever.
+        let producerExited = EmissionCounter()
 
         let body = ServerSentEventGenerator.stream { sse in
+            defer { Task { await producerExited.bump() } }
             while true {
                 try await sse.patchElements("<p>tick</p>")
-                await emissions.bump()
+                try await Task.sleep(for: .milliseconds(1))
             }
+        }
+
+        // Consumer returns after 3 chunks — iterator scope ends, iterator
+        // deinit fires, producer Task should be cancelled.
+        var count = 0
+        for try await _ in body {
+            count += 1
+            if count == 3 { break }
+        }
+
+        // Poll up to 500ms for the producer to exit. If it never exits, the
+        // test fails — which would mean the producer Task is leaked.
+        var exitedCount = 0
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(10))
+            exitedCount = await producerExited.count
+            if exitedCount > 0 { break }
+        }
+        #expect(exitedCount == 1, "producer closure must exit after the consumer drops the iterator (did not exit within 500ms)")
+    }
+
+    @Test("Consumer task cancellation unblocks a parked receive")
+    func consumerTaskCancellationUnblocksReceive() async throws {
+        // The producer never sends anything — so the consumer's next()
+        // will be parked. Cancelling the consumer task must unblock it,
+        // otherwise the task leaks forever.
+        let body = ServerSentEventGenerator.stream { _ in
+            try await Task.sleep(for: .seconds(60)) // long idle — should be cancelled
         }
 
         let consumer = Task {
             var count = 0
             for try await _ in body {
                 count += 1
-                if count == 3 { return }
             }
+            return count
         }
-        _ = try await consumer.value
-        // Give the producer a tick to observe cancellation and exit.
+
         try await Task.sleep(for: .milliseconds(20))
-        let count = await emissions.count
-        #expect(count < 100, "producer should stop shortly after the consumer exits, not run forever (observed \(count))")
+        consumer.cancel()
+
+        // The for-await loop should exit promptly after cancellation.
+        let observed = await withTaskGroup(of: Int?.self) { group in
+            group.addTask { try? await consumer.value }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(500))
+                return nil
+            }
+            for await result in group {
+                group.cancelAll()
+                return result
+            }
+            return nil
+        }
+        #expect(observed != nil, "consumer task should return (not hang) after cancellation")
     }
 
     // MARK: Error propagation
