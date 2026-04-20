@@ -190,3 +190,17 @@ Reviewing v0.3 again against Rust with ADR ignored and Swift API Design Guidelin
 Nested payload structs stay nested under `DatastarEvent`; no top-level typealiases. Rationale: the structs semantically belong to the enum, and module-level scoping is enough. Users who want explicit construction fully-qualify `DatastarEvent.PatchElements(...)`; users who want shorthand use the case-based static constructors `.patchElements(...)`.
 
 Wire format is byte-identical — this whole postscript's changes are naming/surface only. Goldens untouched.
+
+---
+
+## Postscript — v0.3.2 / v0.3.3 internal simplification (pre-ship)
+
+Two passes at reducing `DatastarSSEBody.swift` by peeling layers off the internal machinery. No public API change; wire format byte-identical. Commits `ce307d1` and `31a8166`.
+
+**v0.3.2 — collapse onto the channel directly.** The v0.3.1 body wrapped the channel in a custom `AsyncSequence` plus an `AnyDatastarEventSource` type-erasure struct. But `AsyncThrowingChannel<DatastarEvent, any Error>` is already an `AsyncSequence` — we don't need a second one layered on top. Iterator pulls from the channel directly; the `AsyncSequence`-input init is now a convenience init delegating to the designated closure init via a draining closure. The custom iterator class stays for its one remaining job: `deinit { producer.cancel() }`. Also uses `Optional.map` in `next()` so the conversion is a single expression rather than a `guard let`. Net: 112 → 55 LOC; `AnyDatastarEventSource` deleted.
+
+**v0.3.3 — bytes-only channel + TaskHolder deinit.** The iterator still had two jobs: event → bytes conversion, and deinit cancellation. Moving conversion into the `Emitter` (encode inline before `channel.send`) lets the channel hold `ArraySlice<UInt8>` directly, so iteration is trivial and we typealias `DatastarSSEBody.AsyncIterator` to the stdlib `AsyncThrowingChannel.AsyncIterator`. The cleanup hook moves to a small private `TaskHolder` class held as a struct field — its `deinit` fires on body-value drop and cancels the producer. Net: 55 → ~40 LOC; custom `AsyncIterator` class deleted.
+
+**Investigated and rejected: pure typealias over `AsyncThrowingChannel`.** Attractive on paper — "the channel is already the sequence." But `AsyncThrowingChannel` is a stdlib `public final class` with no `onTermination`, no extensible `deinit`, and no overridable iterator. Without a hook somewhere, the producer Task leaks — reintroducing the exact bug v0.2.1 fixed (iterator-drop leaving the producer parked on `send` forever). The `TaskHolder` struct-field pattern preserves the cleanup guarantee while still shaving most of the body-wrapper's surface.
+
+**Subtle semantic change, v0.3.2 → v0.3.3.** Cleanup trigger moved from iterator-drop to body-value-drop. For HTTP framework patterns (`ResponseBody(asyncSequence: body)` or equivalent) the two drop in the same frame, so it's not observable. The `consumerDropCancelsProducer` test was updated to put the body in a `do { ... }` scope so it exercises the new trigger point.

@@ -65,7 +65,7 @@ let body = DatastarSSEBody(events)
 Three cases, matching the Rust SDK's first-class event types:
 
 - `.patchElements(html, selector:, mode:, ...)` — patch HTML into the DOM.
-- `.patchSignals(value)` / `.patchSignalsJSON(json)` — update client signals.
+- `.patchSignals(encoding: value)` / `.patchSignalsJSON(json)` — update client signals.
 - `.executeScript(script, autoRemove:, attributes:, ...)` — run JavaScript (sugar over `patchElements`).
 
 Removals are expressed via the core events — no dedicated helpers:

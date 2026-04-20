@@ -20,15 +20,15 @@ The browser loads the Datastar client from the official CDN (`https://cdn.jsdeli
 
 Port of [datastar-rust's axum-hello](https://github.com/starfederation/datastar-rust/blob/main/examples/axum-hello.rs). Opens a page with a delay input and a Start button; clicking Start issues `GET /hello-world?datastar=…`, and the server streams "Hello, world!" one character at a time by emitting a `datastar-patch-elements` frame per character.
 
-**Features exercised:** `patchElements` (default `outer` mode), `DatastarSignals.decode(_:fromQueryValue:)`.
+**Features exercised:** `DatastarSSEBody { emit in ... }` trailing-closure init, `.patchElements(_:)` (default `outer` mode), decoding client signals from a GET query parameter with `JSONDecoder`.
 
 ## ActivityFeedExample
 
 Port of [datastar-rust's axum-activity-feed](https://github.com/starfederation/datastar-rust/blob/main/examples/axum-activity-feed.rs). A live log with reactive counters. Click the single-status buttons (done/warn/fail/info) to append one entry, or configure count × interval and click Generate to stream a batch.
 
-The server is stateless: counter values live in the client's Datastar signals. Each request POSTs the current counters as JSON; the server increments them and sends the updated values back via `patchSignals`.
+The server is stateless: counter values live in the client's Datastar signals. Each request POSTs the current counters as JSON; the server increments them and sends the updated values back via a `patch-signals` frame.
 
-**Features exercised:** `patchElements` with `.prepend` and a selector, `patchSignals` (Encodable struct), `DatastarSignals.decode(_:fromBody:)`, multiple events per request with timing.
+**Features exercised:** `.patchElements(_:selector:mode:)` with `.prepend`, `.patchSignals(encoding:)` for an `Encodable` struct, decoding client signals from a POST body with `JSONDecoder`, multiple events per request with timing.
 
 ## Verifying the SSE wire format
 
@@ -45,4 +45,4 @@ Each frame is `event: datastar-patch-elements` (or `-signals`) followed by one o
 
 ## Adapting to your own server
 
-The generator's `body` property is an `AsyncStream<ArraySlice<UInt8>>`. Any framework whose response body accepts an `AsyncSequence` of bytes can stream it — see `App.swift` for the one-line bridge to Hummingbird's `ResponseBody`. For Vapor, swift-nio, or a hand-rolled server, the shape is the same: map the byte slices into the framework's native buffer type and hand the sequence to the response.
+`DatastarSSEBody` is an `AsyncSequence<ArraySlice<UInt8>>`. Any framework whose response body accepts an `AsyncSequence` of bytes can stream it — see `App.swift` for the one-line bridge to Hummingbird's `ResponseBody`. For Vapor, swift-nio, or a hand-rolled server, the shape is the same: map the byte slices into the framework's native buffer type and hand the sequence to the response.
