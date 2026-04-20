@@ -1,12 +1,11 @@
 import Datastar
 
-/// Drain the full body of an SSE generator into a UTF-8 string.
-/// Call sites typically emit their events, then use `collect` to compare
-/// against a golden string.
-func collect(_ sse: ServerSentEventGenerator) async -> String {
-    sse.finish()
+/// Drain the full byte stream of a `DatastarSSEBody` into a UTF-8 string.
+/// Call sites emit their events via `ServerSentEventGenerator.stream { emit in ... }`
+/// and use `collect` to compare the rendered wire format against a golden string.
+func collect(_ body: DatastarSSEBody) async throws -> String {
     var bytes: [UInt8] = []
-    for await chunk in sse.body {
+    for try await chunk in body {
         bytes.append(contentsOf: chunk)
     }
     return String(decoding: bytes, as: UTF8.self)

@@ -2,27 +2,17 @@ import Foundation
 import Testing
 @testable import Datastar
 
-@Suite("ServerSentEventGenerator.stream (pull API)")
+@Suite("ServerSentEventGenerator.stream")
 struct StreamAPITests {
-    // MARK: Helpers
-
-    static func collect(_ body: DatastarSSEBody) async throws -> String {
-        var bytes: [UInt8] = []
-        for try await chunk in body {
-            bytes.append(contentsOf: chunk)
-        }
-        return String(decoding: bytes, as: UTF8.self)
-    }
-
     // MARK: Happy path
 
-    @Test("Emits the expected SSE frames and finishes cleanly")
+    @Test("Emits the expected sequence of frames and finishes cleanly")
     func happyPath() async throws {
-        let body = ServerSentEventGenerator.stream { sse in
-            try await sse.patchElements("<p>one</p>")
-            try await sse.patchElements("<p>two</p>")
+        let body = ServerSentEventGenerator.stream { emit in
+            try await emit(.patchElements("<p>one</p>"))
+            try await emit(.patchElements("<p>two</p>"))
         }
-        let output = try await Self.collect(body)
+        let output = try await collect(body)
         #expect(output == """
         event: datastar-patch-elements
         data: elements <p>one</p>
@@ -34,51 +24,28 @@ struct StreamAPITests {
         """)
     }
 
-    @Test("Wire-format parity with the class-based API")
-    func wireFormatParity() async throws {
-        // Drive both APIs with identical inputs and assert identical output.
-        let body = ServerSentEventGenerator.stream { sse in
-            try await sse.patchElements(
-                "<div>\n  <p>hi</p>\n</div>",
-                selector: "#target",
-                mode: .inner,
-                useViewTransition: true,
-                namespace: .svg,
-                eventID: "42",
-                retryDuration: .milliseconds(2500)
-            )
-        }
-        let pullOutput = try await Self.collect(body)
+    // MARK: Build from an arbitrary AsyncSequence<DatastarEvent>
 
-        let push = ServerSentEventGenerator()
-        try push.patchElements(
-            "<div>\n  <p>hi</p>\n</div>",
-            selector: "#target",
-            mode: .inner,
-            useViewTransition: true,
-            namespace: .svg,
-            eventID: "42",
-            retryDuration: .milliseconds(2500)
-        )
-        push.finish()
-        var pushBytes: [UInt8] = []
-        for await chunk in push.body {
-            pushBytes.append(contentsOf: chunk)
+    @Test("DatastarSSEBody(_:) accepts any async sequence of DatastarEvents")
+    func fromAsyncSequence() async throws {
+        let events = AsyncStream<DatastarEvent> { cont in
+            cont.yield(.patchElements("<p>a</p>"))
+            cont.yield(.patchElements("<p>b</p>"))
+            cont.finish()
         }
-        let pushOutput = String(decoding: pushBytes, as: UTF8.self)
-
-        #expect(pullOutput == pushOutput)
+        let body = DatastarSSEBody(events)
+        let output = try await collect(body)
+        #expect(output.contains("data: elements <p>a</p>"))
+        #expect(output.contains("data: elements <p>b</p>"))
     }
 
     // MARK: Backpressure
 
     @Test("Producer waits for the consumer (rendezvous semantics)")
     func backpressure() async throws {
-        let body = ServerSentEventGenerator.stream { sse in
-            // Emit three events as fast as possible — each should park until
-            // the consumer pulls.
+        let body = ServerSentEventGenerator.stream { emit in
             for i in 1...3 {
-                try await sse.patchElements("<p>\(i)</p>")
+                try await emit(.patchElements("<p>\(i)</p>"))
             }
         }
 
@@ -90,78 +57,69 @@ struct StreamAPITests {
         try await Task.sleep(for: .milliseconds(100))
         _ = try await iter.next()
         let elapsed = ContinuousClock().now - start
-        #expect(elapsed >= .milliseconds(180), "consumer pacing should dictate total time")
+        #expect(elapsed >= .milliseconds(180),
+                "consumer pacing should dictate total time (elapsed \(elapsed))")
     }
 
     // MARK: Cancellation
 
     @Test("Consumer dropping the iterator cancels the producer closure and releases it")
     func consumerDropCancelsProducer() async throws {
-        // The producer closure signals when it exits via this flag — proves
-        // the Task actually terminates rather than being silently parked forever.
         let producerExited = EmissionCounter()
 
-        let body = ServerSentEventGenerator.stream { sse in
+        let body = ServerSentEventGenerator.stream { emit in
             defer { Task { await producerExited.bump() } }
             while true {
-                try await sse.patchElements("<p>tick</p>")
+                try await emit(.patchElements("<p>tick</p>"))
                 try await Task.sleep(for: .milliseconds(1))
             }
         }
 
-        // Consumer returns after 3 chunks — iterator scope ends, iterator
-        // deinit fires, producer Task should be cancelled.
         var count = 0
         for try await _ in body {
             count += 1
             if count == 3 { break }
         }
 
-        // Poll up to 500ms for the producer to exit. If it never exits, the
-        // test fails — which would mean the producer Task is leaked.
         var exitedCount = 0
         for _ in 0..<50 {
             try await Task.sleep(for: .milliseconds(10))
             exitedCount = await producerExited.count
             if exitedCount > 0 { break }
         }
-        #expect(exitedCount == 1, "producer closure must exit after the consumer drops the iterator (did not exit within 500ms)")
+        #expect(exitedCount == 1,
+                "producer closure must exit after the consumer drops the iterator (did not exit within 500ms)")
     }
 
     @Test("Consumer task cancellation unblocks a parked receive")
     func consumerTaskCancellationUnblocksReceive() async throws {
-        // The producer never sends anything — so the consumer's next()
-        // will be parked. Cancelling the consumer task must unblock it,
-        // otherwise the task leaks forever.
         let body = ServerSentEventGenerator.stream { _ in
-            try await Task.sleep(for: .seconds(60)) // long idle — should be cancelled
+            try await Task.sleep(for: .seconds(60))
         }
 
         let consumer = Task {
-            var count = 0
-            for try await _ in body {
-                count += 1
-            }
-            return count
+            for try await _ in body {}
         }
 
         try await Task.sleep(for: .milliseconds(20))
         consumer.cancel()
 
-        // The for-await loop should exit promptly after cancellation.
-        let observed = await withTaskGroup(of: Int?.self) { group in
-            group.addTask { try? await consumer.value }
+        let returned = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                _ = try? await consumer.value
+                return true
+            }
             group.addTask {
                 try? await Task.sleep(for: .milliseconds(500))
-                return nil
+                return false
             }
             for await result in group {
                 group.cancelAll()
                 return result
             }
-            return nil
+            return false
         }
-        #expect(observed != nil, "consumer task should return (not hang) after cancellation")
+        #expect(returned, "consumer task should return (not hang) after cancellation")
     }
 
     // MARK: Error propagation
@@ -170,52 +128,19 @@ struct StreamAPITests {
 
     @Test("Producer errors surface on the consumer's next()")
     func producerErrorPropagates() async throws {
-        let body = ServerSentEventGenerator.stream { sse in
-            try await sse.patchElements("<p>before</p>")
+        let body = ServerSentEventGenerator.stream { emit in
+            try await emit(.patchElements("<p>before</p>"))
             throw TestError()
         }
 
         var iter = body.makeAsyncIterator()
-        _ = try await iter.next() // first frame
+        _ = try await iter.next()
         await #expect(throws: TestError.self) {
             _ = try await iter.next()
         }
     }
-
-    // MARK: Signals
-
-    @Test("patchSignals encodes via JSONEncoder and emits a signals frame")
-    func patchSignals() async throws {
-        struct Example: Encodable { let count: Int }
-        let body = ServerSentEventGenerator.stream { sse in
-            try await sse.patchSignals(Example(count: 7))
-        }
-        let output = try await Self.collect(body)
-        #expect(output == """
-        event: datastar-patch-signals
-        data: signals {"count":7}
-
-
-        """)
-    }
-
-    @Test("removeElements emits a selector + mode=remove frame")
-    func removeElementsConvenience() async throws {
-        let body = ServerSentEventGenerator.stream { sse in
-            try await sse.removeElements(selector: "#gone")
-        }
-        let output = try await Self.collect(body)
-        #expect(output == """
-        event: datastar-patch-elements
-        data: selector #gone
-        data: mode remove
-
-
-        """)
-    }
 }
 
-// Thread-safe counter for the cancellation test.
 actor EmissionCounter {
     private(set) var count: Int = 0
     func bump() { count += 1 }
