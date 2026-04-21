@@ -6,7 +6,7 @@ import NIOCore
 ///
 /// Analogous to Axum's `Sse<S>`. Unlike `DatastarSSEBody`, no background Task
 /// is spawned — Hummingbird drives the sequence inline.
-public struct DatastarSSEStream<Source: AsyncSequence & Sendable>: ResponseGenerator
+public struct DatastarSSEStream<Source: AsyncSequence & Sendable>: ResponseGenerator, Sendable
     where Source.Element: DatastarEventConvertible
 {
     private let events: Source
@@ -16,12 +16,16 @@ public struct DatastarSSEStream<Source: AsyncSequence & Sendable>: ResponseGener
     }
 
     public func response(from request: Request, context: some RequestContext) -> Response {
-        Response(
+        let events = events
+        return Response(
             status: .ok,
             headers: [.contentType: "text/event-stream", .cacheControl: "no-cache"],
-            body: ResponseBody(asyncSequence: events.map {
-                ByteBuffer(bytes: SSEEncoding.encode($0.toDatastarEvent().toWireEvent()))
-            })
+            body: ResponseBody { writer in
+                for try await event in events {
+                    try await writer.emit(event)
+                }
+                try await writer.finish(nil)
+            }
         )
     }
 }
