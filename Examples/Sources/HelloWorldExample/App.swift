@@ -1,8 +1,6 @@
-import Datastar
 import DatastarHummingbird
 import Foundation
 import Hummingbird
-import NIOCore
 
 private let indexHTML: String = {
     let url = Bundle.module.url(forResource: "index", withExtension: "html")!
