@@ -51,14 +51,13 @@ struct HelloWorldApp {
             )
         }
 
-        router.get("/hello-world") { request, _ -> DatastarSSEBody in
+        router.get("/hello-world") { request, _ -> Response in
             let signals = try request.datastarSignals(as: HelloSignals.self)
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
-            return DatastarSSEBody { emit in
+            return .datastarSSE { writer in
                 for i in 1...message.count {
-                    let prefix = String(message.prefix(i))
-                    try await emit(.patchElements(#"<div id="message">\#(prefix)</div>"#))
+                    try await writer.emit(.patchElements(#"<div id="message">\#(message.prefix(i))</div>"#))
                     try await Task.sleep(for: .milliseconds(delayMs))
                 }
             }

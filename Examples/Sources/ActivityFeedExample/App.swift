@@ -100,15 +100,15 @@ private func appendActivity(
     status: Status,
     index: Int,
     signals: inout ActivitySignals,
-    emit: DatastarSSEBody.Emitter
+    writer: inout any ResponseBodyWriter
 ) async throws {
     signals.bump(status)
-    try await emit(.patchElements(
+    try await writer.emit(.patchElements(
         entryHTML(status: status, index: index),
         selector: "#feed",
         mode: .prepend
     ))
-    try await emit(try .patchSignals(encoding: signals))
+    try await writer.emit(try .patchSignals(encoding: signals))
 }
 
 @main
@@ -125,26 +125,26 @@ struct ActivityFeedApp {
         }
 
         for status in Status.allCases {
-            router.post("/event/\(status.rawValue)") { request, context -> DatastarSSEBody in
+            router.post("/event/\(status.rawValue)") { request, context -> Response in
                 var req = request
                 let initialSignals = try await req.datastarSignals(as: ActivitySignals.self, context: context)
-                return DatastarSSEBody { emit in
+                return .datastarSSE { [initialSignals] writer in
                     var signals = initialSignals
-                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, emit: emit)
+                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, writer: &writer)
                 }
             }
         }
 
-        router.post("/event/generate") { request, context -> DatastarSSEBody in
+        router.post("/event/generate") { request, context -> Response in
             var req = request
             let initialSignals = try await req.datastarSignals(as: ActivitySignals.self, context: context)
             let count = max(1, min(50, initialSignals.count))
             let interval = max(0, min(2000, initialSignals.interval))
-            return DatastarSSEBody { emit in
+            return .datastarSSE { [initialSignals] writer in
                 var signals = initialSignals
                 for _ in 0..<count {
                     let status = Status.allCases.randomElement() ?? .info
-                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, emit: emit)
+                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, writer: &writer)
                     try await Task.sleep(for: .milliseconds(interval))
                 }
             }
