@@ -22,7 +22,10 @@ let package = Package(
             dependencies: [
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
-            path: "Sources/Datastar"
+            path: "Sources/Datastar",
+            swiftSettings: [
+                .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
+            ]
         ),
         .testTarget(
             name: "DatastarTests",
