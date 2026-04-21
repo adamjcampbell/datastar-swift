@@ -4,58 +4,10 @@ import Foundation
 import Hummingbird
 import NIOCore
 
-private let indexHTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>datastar-swift · Activity Feed</title>
-    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0/bundles/datastar.js"></script>
-    <style>
-        body { font-family: -apple-system, system-ui, sans-serif; padding: 2rem; max-width: 50rem; margin: auto; }
-        input, button { padding: 0.4rem 0.75rem; font-size: 1rem; }
-        button { margin-right: 0.25rem; }
-        .counters { margin: 1.25rem 0; font-size: 1rem; }
-        .counters span { font-variant-numeric: tabular-nums; font-weight: 600; }
-        ul#feed { list-style: none; padding: 0; border-top: 1px solid #eee; }
-        ul#feed li { padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; font-family: ui-monospace, monospace; font-size: 0.9rem; }
-        ul#feed li.done { background: #f0fdf4; }
-        ul#feed li.warn { background: #fefce8; }
-        ul#feed li.fail { background: #fef2f2; }
-        ul#feed li.info { background: #eff6ff; }
-    </style>
-</head>
-<body data-signals="{total: 0, done: 0, warn: 0, fail: 0, info: 0, count: 5, interval: 200}">
-    <h1>datastar-swift — Activity Feed</h1>
-
-    <p>
-        Bulk:
-        count <input type="number" data-bind:count min="1" max="50" style="width:4rem" />
-        ×
-        interval <input type="number" data-bind:interval min="0" max="2000" step="50" style="width:5rem" /> ms
-        <button data-on:click="@post('/event/generate')">Generate</button>
-    </p>
-
-    <p>
-        Single:
-        <button data-on:click="@post('/event/done')">done</button>
-        <button data-on:click="@post('/event/warn')">warn</button>
-        <button data-on:click="@post('/event/fail')">fail</button>
-        <button data-on:click="@post('/event/info')">info</button>
-    </p>
-
-    <div class="counters">
-        total <span data-text="$total"></span> ·
-        done <span data-text="$done"></span> ·
-        warn <span data-text="$warn"></span> ·
-        fail <span data-text="$fail"></span> ·
-        info <span data-text="$info"></span>
-    </div>
-
-    <ul id="feed"></ul>
-</body>
-</html>
-"""
+private let indexHTML: String = {
+    let url = Bundle.module.url(forResource: "index", withExtension: "html")!
+    return try! String(contentsOf: url, encoding: .utf8)
+}()
 
 private enum Status: String, CaseIterable, Sendable {
     case done, warn, fail, info

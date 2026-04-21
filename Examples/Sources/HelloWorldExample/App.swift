@@ -4,35 +4,10 @@ import Foundation
 import Hummingbird
 import NIOCore
 
-private let indexHTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>datastar-swift · Hello World</title>
-    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.0/bundles/datastar.js"></script>
-    <style>
-        body { font-family: -apple-system, system-ui, sans-serif; padding: 2rem; max-width: 40rem; margin: auto; }
-        input, button { padding: 0.5rem 0.75rem; font-size: 1rem; }
-        button { margin-left: 0.5rem; }
-        #message { margin-top: 2rem; font-size: 1.75rem; font-weight: 600; min-height: 2.5rem; }
-    </style>
-</head>
-<body data-signals="{delay: 200}">
-    <h1>datastar-swift — Hello World</h1>
-    <p>
-        Delay (ms):
-        <input type="number" data-bind:delay min="0" max="2000" step="50" />
-        <button data-on:click="@get('/hello-world')">Start</button>
-    </p>
-    <div id="message"></div>
-    <p style="color:#666; font-size:0.875rem;">
-        Clicking Start issues a GET to <code>/hello-world?datastar=…</code>.
-        The server streams <code>datastar-patch-elements</code> frames, one character at a time.
-    </p>
-</body>
-</html>
-"""
+private let indexHTML: String = {
+    let url = Bundle.module.url(forResource: "index", withExtension: "html")!
+    return try! String(contentsOf: url, encoding: .utf8)
+}()
 
 private struct HelloSignals: Decodable {
     var delay: Double
