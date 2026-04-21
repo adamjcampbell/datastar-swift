@@ -1,7 +1,5 @@
-import Datastar
 import Foundation
 import Hummingbird
-import NIOCore
 
 extension Request {
     /// Decode Datastar signals from `?datastar=<json>` (GET requests).

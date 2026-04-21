@@ -1,6 +1,4 @@
-import Datastar
 import Hummingbird
-import NIOCore
 
 // MARK: - ResponseBodyWriter
 
