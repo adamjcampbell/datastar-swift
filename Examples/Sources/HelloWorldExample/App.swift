@@ -1,4 +1,5 @@
 import Datastar
+import DatastarHummingbird
 import Foundation
 import Hummingbird
 import NIOCore
@@ -50,29 +51,17 @@ struct HelloWorldApp {
             )
         }
 
-        router.get("/hello-world") { request, _ -> Response in
-            let raw = request.uri.queryParameters["datastar"].map(String.init) ?? #"{"delay":200}"#
-            let signals = try JSONDecoder().decode(HelloSignals.self, from: Data(raw.utf8))
-
+        router.get("/hello-world") { request, _ -> DatastarSSEBody in
+            let signals = try request.datastarSignals(as: HelloSignals.self)
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
-
-            let body = DatastarSSEBody { emit in
+            return DatastarSSEBody { emit in
                 for i in 1...message.count {
                     let prefix = String(message.prefix(i))
                     try await emit(.patchElements(#"<div id="message">\#(prefix)</div>"#))
                     try await Task.sleep(for: .milliseconds(delayMs))
                 }
             }
-
-            return Response(
-                status: .ok,
-                headers: [
-                    .contentType: "text/event-stream",
-                    .cacheControl: "no-cache",
-                ],
-                body: ResponseBody(asyncSequence: body.map { ByteBuffer(bytes: $0) })
-            )
         }
 
         let app = Application(

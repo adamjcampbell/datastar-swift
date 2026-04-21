@@ -1,4 +1,5 @@
 import Datastar
+import DatastarHummingbird
 import Foundation
 import Hummingbird
 import NIOCore
@@ -110,26 +111,6 @@ private func appendActivity(
     try await emit(try .patchSignals(encoding: signals))
 }
 
-private func readSignals(from request: Request) async throws -> ActivitySignals {
-    let buffer = try await request.body.collect(upTo: 1 << 16) // 64 KiB cap
-    let bytes = Data(buffer: buffer)
-    if bytes.isEmpty {
-        return ActivitySignals()
-    }
-    return try JSONDecoder().decode(ActivitySignals.self, from: bytes)
-}
-
-private func streamingResponse(_ body: DatastarSSEBody) -> Response {
-    Response(
-        status: .ok,
-        headers: [
-            .contentType: "text/event-stream",
-            .cacheControl: "no-cache",
-        ],
-        body: ResponseBody(asyncSequence: body.map { ByteBuffer(bytes: $0) })
-    )
-}
-
 @main
 struct ActivityFeedApp {
     static func main() async throws {
@@ -144,22 +125,22 @@ struct ActivityFeedApp {
         }
 
         for status in Status.allCases {
-            router.post("/event/\(status.rawValue)") { request, _ -> Response in
-                let initialSignals = try await readSignals(from: request)
-                let body = DatastarSSEBody { emit in
+            router.post("/event/\(status.rawValue)") { request, context -> DatastarSSEBody in
+                var req = request
+                let initialSignals = try await req.datastarSignals(as: ActivitySignals.self, context: context)
+                return DatastarSSEBody { emit in
                     var signals = initialSignals
                     try await appendActivity(status: status, index: signals.total + 1, signals: &signals, emit: emit)
                 }
-                return streamingResponse(body)
             }
         }
 
-        router.post("/event/generate") { request, _ -> Response in
-            let initialSignals = try await readSignals(from: request)
+        router.post("/event/generate") { request, context -> DatastarSSEBody in
+            var req = request
+            let initialSignals = try await req.datastarSignals(as: ActivitySignals.self, context: context)
             let count = max(1, min(50, initialSignals.count))
             let interval = max(0, min(2000, initialSignals.interval))
-
-            let body = DatastarSSEBody { emit in
+            return DatastarSSEBody { emit in
                 var signals = initialSignals
                 for _ in 0..<count {
                     let status = Status.allCases.randomElement() ?? .info
@@ -167,7 +148,6 @@ struct ActivityFeedApp {
                     try await Task.sleep(for: .milliseconds(interval))
                 }
             }
-            return streamingResponse(body)
         }
 
         let app = Application(
