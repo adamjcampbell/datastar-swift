@@ -215,9 +215,8 @@ extension DatastarEvent.ExecuteScript: DatastarEventConvertible {
 // MARK: - Wire-format conversion (internal)
 
 extension DatastarEvent {
-    /// Build the wire-format SSE event. Consumed by `DatastarSSEBody.Iterator`
-    /// during emission.
-    internal func toWireEvent() -> SSEEvent {
+    /// Build the wire-format SSE event for use in custom framework adapters.
+    public func toWireEvent() -> SSEEvent {
         switch self {
         case .patchElements(let p): return p.toWireEvent()
         case .patchSignals(let p):  return p.toWireEvent()

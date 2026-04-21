@@ -5,16 +5,23 @@ import Foundation
 /// Matches the Datastar wire format: `event:` line, optional `id:` line,
 /// optional `retry:` line, one or more `data:` lines, terminating blank line.
 /// Line endings are `\n` to match the reference Go and TypeScript SDKs.
-struct SSEEvent {
-    var name: String
-    var id: String?
-    var retry: Duration?
-    var data: [String]
+public struct SSEEvent {
+    public var name: String
+    public var id: String?
+    public var retry: Duration?
+    public var data: [String]
+
+    public init(name: String, id: String? = nil, retry: Duration? = nil, data: [String]) {
+        self.name = name
+        self.id = id
+        self.retry = retry
+        self.data = data
+    }
 }
 
-enum SSEEncoding {
+public enum SSEEncoding {
     /// Encode an event to its on-the-wire byte representation.
-    static func encode(_ event: SSEEvent) -> [UInt8] {
+    public static func encode(_ event: SSEEvent) -> [UInt8] {
         var out: [UInt8] = []
         append(&out, "event: ")
         append(&out, event.name)
@@ -43,7 +50,7 @@ enum SSEEncoding {
     }
 
     @inline(__always)
-    private static func append(_ buffer: inout [UInt8], _ string: String) {
+    static func append(_ buffer: inout [UInt8], _ string: String) {
         buffer.append(contentsOf: string.utf8)
     }
 }
