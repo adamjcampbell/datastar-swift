@@ -12,9 +12,11 @@ let package = Package(
     ],
     products: [
         .library(name: "Datastar", targets: ["Datastar"]),
+        .library(name: "DatastarHummingbird", targets: ["DatastarHummingbird"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms.git", from: "1.1.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", "2.0.0"..<"3.0.0"),
     ],
     targets: [
         .target(
@@ -23,6 +25,17 @@ let package = Package(
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
             path: "Sources/Datastar",
+            swiftSettings: [
+                .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
+            ]
+        ),
+        .target(
+            name: "DatastarHummingbird",
+            dependencies: [
+                .target(name: "Datastar"),
+                .product(name: "Hummingbird", package: "hummingbird"),
+            ],
+            path: "Sources/DatastarHummingbird",
             swiftSettings: [
                 .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
             ]
