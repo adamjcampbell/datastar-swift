@@ -14,13 +14,15 @@ let package = Package(
             name: "HelloWorldExample",
             dependencies: [
                 .product(name: "DatastarHummingbird", package: "datastar-swift"),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .executableTarget(
             name: "ActivityFeedExample",
             dependencies: [
                 .product(name: "DatastarHummingbird", package: "datastar-swift"),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
     ],
     swiftLanguageModes: [.v6]
