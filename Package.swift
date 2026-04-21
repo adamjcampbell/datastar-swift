@@ -12,6 +12,7 @@ let package = Package(
     ],
     products: [
         .library(name: "Datastar", targets: ["Datastar"]),
+        .library(name: "DatastarStream", targets: ["DatastarStream"]),
         .library(name: "DatastarHummingbird", targets: ["DatastarHummingbird"]),
     ],
     dependencies: [
@@ -25,6 +26,17 @@ let package = Package(
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
             ],
             path: "Sources/Datastar",
+            swiftSettings: [
+                .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
+            ]
+        ),
+        .target(
+            name: "DatastarStream",
+            dependencies: [
+                .target(name: "Datastar"),
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+            ],
+            path: "Sources/DatastarStream",
             swiftSettings: [
                 .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
             ]
@@ -47,6 +59,11 @@ let package = Package(
             resources: [
                 .copy("Resources/datastar-sdk-config-v1.json"),
             ]
+        ),
+        .testTarget(
+            name: "DatastarStreamTests",
+            dependencies: ["DatastarStream"],
+            path: "Tests/DatastarStreamTests"
         ),
     ],
     swiftLanguageModes: [.v6]
