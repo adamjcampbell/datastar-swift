@@ -25,7 +25,7 @@ let package = Package(
             dependencies: [],
             path: "Sources/Datastar",
             swiftSettings: [
-                .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .target(
@@ -36,7 +36,7 @@ let package = Package(
             ],
             path: "Sources/DatastarStream",
             swiftSettings: [
-                .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
             ]
         ),
         .target(
@@ -45,10 +45,7 @@ let package = Package(
                 .target(name: "Datastar"),
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
-            path: "Sources/DatastarHummingbird",
-            swiftSettings: [
-                .enableUpcomingFeature("NonIsolatedNonsendingByDefault"),
-            ]
+            path: "Sources/DatastarHummingbird"
         ),
         .testTarget(
             name: "DatastarTests",
