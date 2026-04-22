@@ -7,11 +7,9 @@ This package provides a framework-agnostic core: a value-oriented Datastar-event
 ## Requirements
 
 - Swift 6.2+ (uses `NonisolatedNonsendingByDefault` — SE-0461)
-- macOS 14+, iOS 17+, tvOS 17+, watchOS 10+, visionOS 1+, or Linux
+- macOS 14+, Linux, or Windows (untested; `DatastarHummingbird` requires Hummingbird v2 which does not support Windows)
 
 Install the Swift toolchain via [swiftly](https://www.swift.org/install/) (`swiftly install latest`) if you don't already have Swift 6.2 or later.
-
-> **Windows:** the core `Datastar` and `DatastarStream` targets are framework-agnostic and may work on Windows, but this is untested. `DatastarHummingbird` depends on Hummingbird v2, which does not support Windows.
 
 ## Installation
 
@@ -34,9 +32,7 @@ Then add the targets you need to your target's dependencies:
 
 ### Emit SSE events
 
-Datastar events are modeled as data (`DatastarEvent` values) rather than method calls on a writer. Two primary entry points:
-
-**Trailing-closure init** — for the common case of emitting events in order. Each `try await emit(...)` suspends until the HTTP consumer reads the previous chunk, so the producer paces itself to the client automatically. If the client disconnects, the closure exits cleanly:
+Datastar events are values (`DatastarEvent`), not method calls on a writer. Create a `DatastarSSEStream` with a trailing closure and hand it to your HTTP framework as a streaming response body (`Content-Type: text/event-stream`):
 
 ```swift
 import DatastarStream
@@ -51,29 +47,15 @@ let stream = DatastarSSEStream { emit in
     try await emit(try .patchSignals(encoding: ["count": 42]))
     try await emit(.executeScript("console.log('done')"))
 }
-
-// Hand the stream (a DatastarSSEStream — an AsyncSequence<ArraySlice<UInt8>>)
-// to your HTTP framework's streaming response body. Set
-// Content-Type: text/event-stream.
 ```
 
-`emit` accepts both the enum-case shorthand (`.patchElements(...)`) and the fully-qualified struct-literal form (`DatastarEvent.PatchElements(...)`):
+You can also init `DatastarSSEStream` from any `AsyncSequence` of `DatastarEventConvertible` values.
 
-```swift
-try await emit(.patchElements("<p>hi</p>"))                            // shorthand
-try await emit(DatastarEvent.PatchElements("<p>bye</p>", selector: "#x"))  // explicit
-```
-
-**From any `AsyncSequence`** of `DatastarEventConvertible` values — for event sources you already have (domain streams, file watchers, upstream APIs):
-
-```swift
-let events = domainEvents.map { DatastarEvent.PatchElements(render($0)) }
-let stream = DatastarSSEStream(events)
-```
+See [`Examples/`](./Examples) for complete, runnable Hummingbird integrations.
 
 ### Events
 
-Three cases, matching the Rust SDK's first-class event types:
+Three event types:
 
 - `.patchElements(html, selector:, mode:, ...)` — patch HTML into the DOM.
 - `.patchSignals(encoding: value)` / `.patchSignalsJSON(json)` — update client signals.
@@ -91,9 +73,7 @@ try await emit(.patchSignalsJSON(#"{"stale":null}"#))
 
 ### Decoding signals from a request
 
-The Datastar protocol splits signal transport by HTTP method: a `datastar` query parameter for GET/DELETE, and a JSON body for POST/PUT/PATCH.
-
-**With `DatastarHummingbird`**, both cases are handled automatically:
+**With `DatastarHummingbird`**:
 
 ```swift
 import DatastarHummingbird
@@ -147,4 +127,4 @@ Planned for a future release: Vapor adapter.
 
 ## License
 
-MIT. Based on the [Datastar SDK specification](https://github.com/starfederation/datastar/blob/main/sdk/ADR.md) by starfederation.
+MIT.
