@@ -6,23 +6,9 @@ This directory is a separate Swift package (its own `Package.swift` with a `path
 
 ## Swift toolchain
 
-These examples require **Swift 6.2 or later**. The easiest way to install Swift is via [swiftly](https://www.swift.org/install/), the official Swift toolchain manager:
+These examples require **Swift 6.2 or later**. Install via [swift.org/install](https://www.swift.org/install/).
 
-```sh
-# macOS
-installer -pkg swiftly-*.pkg -target CurrentUserHomeDirectory
-~/.swiftly/bin/swiftly init
-
-# Linux
-curl -O "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
-tar -zxf swiftly-*.tar.gz && ./swiftly init
-
-# Install and activate the latest Swift release
-swiftly install latest
-swift --version   # should print 6.2 or later
-```
-
-If you're on macOS and prefer Xcode, Swift 6.2+ ships with Xcode 16.3 and later.
+On macOS, Swift 6.2+ ships with Xcode 26 and later.
 
 ## Running
 
@@ -38,7 +24,7 @@ The browser loads the Datastar client from the official CDN (`https://cdn.jsdeli
 
 ## HelloWorldExample
 
-Port of [datastar-rust's axum-hello](https://github.com/starfederation/datastar-rust/blob/main/examples/axum-hello.rs). Opens a page with a delay input and a Start button; clicking Start issues `GET /hello-world?datastar=…`, and the server streams "Hello, world!" one character at a time by emitting a `datastar-patch-elements` frame per character.
+Opens a page with a delay input and a Start button; clicking Start issues `GET /hello-world?datastar=…`, and the server streams "Hello, world!" one character at a time by emitting a `datastar-patch-elements` frame per character.
 
 **Features exercised:** `DatastarSSEStream { emit in ... }` trailing-closure init, `.patchElements(_:)` (default `outer` mode), decoding client signals from a GET query parameter with `JSONDecoder`.
 
