@@ -4,6 +4,26 @@ Runnable demos for the datastar-swift SDK, wired up with [Hummingbird 2](https:/
 
 This directory is a separate Swift package (its own `Package.swift` with a `path: "../"` dependency on the core library), so the main `Datastar` library stays free of any HTTP-framework dependency — library consumers never pull Hummingbird into their resolve graph.
 
+## Swift toolchain
+
+These examples require **Swift 6.2 or later**. The easiest way to install Swift is via [swiftly](https://www.swift.org/install/), the official Swift toolchain manager:
+
+```sh
+# macOS
+installer -pkg swiftly-*.pkg -target CurrentUserHomeDirectory
+~/.swiftly/bin/swiftly init
+
+# Linux
+curl -O "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
+tar -zxf swiftly-*.tar.gz && ./swiftly init
+
+# Install and activate the latest Swift release
+swiftly install latest
+swift --version   # should print 6.2 or later
+```
+
+If you're on macOS and prefer Xcode, Swift 6.2+ ships with Xcode 16.3 and later.
+
 ## Running
 
 ```sh
@@ -20,7 +40,7 @@ The browser loads the Datastar client from the official CDN (`https://cdn.jsdeli
 
 Port of [datastar-rust's axum-hello](https://github.com/starfederation/datastar-rust/blob/main/examples/axum-hello.rs). Opens a page with a delay input and a Start button; clicking Start issues `GET /hello-world?datastar=…`, and the server streams "Hello, world!" one character at a time by emitting a `datastar-patch-elements` frame per character.
 
-**Features exercised:** `DatastarSSEBody { emit in ... }` trailing-closure init, `.patchElements(_:)` (default `outer` mode), decoding client signals from a GET query parameter with `JSONDecoder`.
+**Features exercised:** `DatastarSSEStream { emit in ... }` trailing-closure init, `.patchElements(_:)` (default `outer` mode), decoding client signals from a GET query parameter with `JSONDecoder`.
 
 ## ActivityFeedExample
 
@@ -45,4 +65,4 @@ Each frame is `event: datastar-patch-elements` (or `-signals`) followed by one o
 
 ## Adapting to your own server
 
-`DatastarSSEBody` is an `AsyncSequence<ArraySlice<UInt8>>`. Any framework whose response body accepts an `AsyncSequence` of bytes can stream it — see `App.swift` for the one-line bridge to Hummingbird's `ResponseBody`. For Vapor, swift-nio, or a hand-rolled server, the shape is the same: map the byte slices into the framework's native buffer type and hand the sequence to the response.
+`DatastarSSEStream` is an `AsyncSequence<ArraySlice<UInt8>>`. Any framework whose response body accepts an `AsyncSequence` of bytes can stream it — see `App.swift` for the one-line bridge to Hummingbird's `ResponseBody`. For Vapor, swift-nio, or a hand-rolled server, the shape is the same: map the byte slices into the framework's native buffer type and hand the sequence to the response.

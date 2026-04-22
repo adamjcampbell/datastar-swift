@@ -6,7 +6,7 @@ import Foundation
 /// typically construct these via the ergonomic static methods
 /// (`.patchElements(...)`, `.patchSignals(...)`, `.executeScript(...)`) or
 /// the nested payload structs (`DatastarEvent.PatchElements(...)`), and emit
-/// them through either a `DatastarSSEBody` trailing-closure init or any
+/// them through either a `DatastarSSEStream` trailing-closure init or any
 /// `AsyncSequence` of `DatastarEventConvertible` values.
 public enum DatastarEvent: Sendable {
     case patchElements(PatchElements)
@@ -189,7 +189,7 @@ extension DatastarEvent {
 
 /// A type that can be converted to a `DatastarEvent`.
 ///
-/// Lets `DatastarSSEBody.Emitter` and `DatastarSSEBody.init(_ events:)` accept
+/// Lets `DatastarSSEStream.Emitter` and `DatastarSSEStream.init(_ events:)` accept
 /// both the enum's case shorthand (e.g. `.patchElements(...)`) and bare
 /// payload structs (e.g. `DatastarEvent.PatchElements(...)`) uniformly.
 public protocol DatastarEventConvertible: Sendable {

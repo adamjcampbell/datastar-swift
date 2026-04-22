@@ -6,18 +6,29 @@ This package provides a framework-agnostic core: a value-oriented Datastar-event
 
 ## Requirements
 
-- Swift 6.0+
+- Swift 6.2+ (uses `NonisolatedNonsendingByDefault` — SE-0461)
 - macOS 14+, iOS 17+, tvOS 17+, watchOS 10+, visionOS 1+, or Linux
+
+Install the Swift toolchain via [swiftly](https://www.swift.org/install/) (`swiftly install latest`) if you don't already have Swift 6.2 or later.
+
+> **Windows:** the core `Datastar` and `DatastarStream` targets are framework-agnostic and may work on Windows, but this is untested. `DatastarHummingbird` depends on Hummingbird v2, which does not support Windows.
 
 ## Installation
 
 Add to your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/<owner>/datastar-swift.git", from: "0.1.0")
+// Alpha — pin to the exact pre-release tag until v0.1.0 is released
+.package(url: "https://github.com/adamjcampbell/datastar-swift.git", exact: "0.1.0-alpha.1")
 ```
 
-Then add `Datastar` to your target's dependencies.
+Then add the targets you need to your target's dependencies:
+
+| Target | When to use |
+|--------|-------------|
+| `Datastar` | Wire-format primitives only — no HTTP framework dependency |
+| `DatastarStream` | Adds `DatastarSSEStream`, an `AsyncSequence`-based SSE body |
+| `DatastarHummingbird` | Hummingbird 2 integration: `Response.datastarSSE` + `request.datastarSignals` |
 
 ## Usage
 
@@ -28,9 +39,9 @@ Datastar events are modeled as data (`DatastarEvent` values) rather than method 
 **Trailing-closure init** — for the common case of emitting events in order. Each `try await emit(...)` suspends until the HTTP consumer reads the previous chunk, so the producer paces itself to the client automatically. If the client disconnects, the closure exits cleanly:
 
 ```swift
-import Datastar
+import DatastarStream
 
-let body = DatastarSSEBody { emit in
+let stream = DatastarSSEStream { emit in
     try await emit(.patchElements(
         #"<div id="clock">12:00</div>"#,
         selector: "#clock",
@@ -41,7 +52,7 @@ let body = DatastarSSEBody { emit in
     try await emit(.executeScript("console.log('done')"))
 }
 
-// Hand `body` (a DatastarSSEBody — an AsyncSequence<ArraySlice<UInt8>>)
+// Hand the stream (a DatastarSSEStream — an AsyncSequence<ArraySlice<UInt8>>)
 // to your HTTP framework's streaming response body. Set
 // Content-Type: text/event-stream.
 ```
@@ -57,7 +68,7 @@ try await emit(DatastarEvent.PatchElements("<p>bye</p>", selector: "#x"))  // ex
 
 ```swift
 let events = domainEvents.map { DatastarEvent.PatchElements(render($0)) }
-let body = DatastarSSEBody(events)
+let stream = DatastarSSEStream(events)
 ```
 
 ### Events
@@ -80,7 +91,21 @@ try await emit(.patchSignalsJSON(#"{"stale":null}"#))
 
 ### Decoding signals from a request
 
-The framework-agnostic core does NOT ship a request-side signals helper. The Datastar protocol splits signal transport by HTTP method (query param `datastar` for GET/DELETE, JSON body for others); framework-specific adapters (planned for a later release) will provide method-aware extractors. Until then, decode directly with `JSONDecoder`:
+The Datastar protocol splits signal transport by HTTP method: a `datastar` query parameter for GET/DELETE, and a JSON body for POST/PUT/PATCH.
+
+**With `DatastarHummingbird`**, both cases are handled automatically:
+
+```swift
+import DatastarHummingbird
+
+// GET/DELETE — reads the ?datastar= query parameter
+let signals = try request.datastarSignals(as: MySignals.self)
+
+// POST/PUT/PATCH — collects the body and JSON-decodes it
+let signals = try await request.datastarSignals(as: MySignals.self, context: context)
+```
+
+**Framework-agnostic fallback** — decode directly with `JSONDecoder`:
 
 ```swift
 struct MySignals: Decodable {
@@ -112,7 +137,13 @@ See [`Examples/README.md`](./Examples/README.md) for details.
 
 ## Status
 
-v0.3 — value-oriented API around `DatastarEvent` (pre-ship; no releases yet). Framework adapters for Vapor and Hummingbird — including method-aware `ReadSignals` extractors — are planned for a follow-up release.
+**Alpha** — the API is shaped and the wire format is correct, but the library is untested in production. Breaking changes are possible before v0.1.0.
+
+- `Datastar` — wire-format encoding, complete
+- `DatastarStream` — `DatastarSSEStream` AsyncSequence wrapper, complete
+- `DatastarHummingbird` — Hummingbird 2 adapter with `Response.datastarSSE` and `request.datastarSignals`, complete
+
+Planned for a future release: Vapor adapter.
 
 ## License
 
