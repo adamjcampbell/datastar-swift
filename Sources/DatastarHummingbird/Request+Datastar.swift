@@ -29,6 +29,6 @@ extension Request {
         if buffer.readableBytes == 0 {
             return try decoder.decode(T.self, from: Data("{}".utf8))
         }
-        return try decoder.decode(T.self, from: Data(buffer: buffer))
+        return try decoder.decode(T.self, from: Data(buffer.readableBytesView))
     }
 }
