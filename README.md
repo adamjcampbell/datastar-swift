@@ -119,6 +119,8 @@ See [`Examples/README.md`](./Examples/README.md) for details.
 
 **Alpha** — the API is shaped and the wire format is correct, but the library is untested in production. Breaking changes are possible before v0.1.0.
 
+> **Disclaimer:** This library was developed with LLM (AI) assistance. At alpha stage, documentation and implementation details may be incorrect or misleading in places. Please verify anything critical against the [Datastar specification](https://data-star.dev) and open an issue if you find something wrong.
+
 - `Datastar` — wire-format encoding, complete
 - `DatastarStream` — `DatastarSSEStream` AsyncSequence wrapper, complete
 - `DatastarHummingbird` — Hummingbird 2 adapter with `Response.datastarSSE` and `request.datastarSignals`, complete
