@@ -74,7 +74,7 @@ struct SignalsTests {
                 )
             }
             #expect(response.status == .ok)
-            let decoded = try JSONDecoder().decode(Signals.self, from: response.body)
+            let decoded = try JSONDecoder().decode(Signals.self, from: Data(response.body.readableBytesView))
             #expect(decoded == payload)
         }
     }
@@ -85,7 +85,7 @@ struct SignalsTests {
         try await app.test(.router) { client in
             let response = try await client.execute(uri: "/signals", method: .get)
             #expect(response.status == .ok)
-            let decoded = try JSONDecoder().decode(Signals.self, from: response.body)
+            let decoded = try JSONDecoder().decode(Signals.self, from: Data(response.body.readableBytesView))
             #expect(decoded == Signals())
         }
     }
@@ -96,7 +96,7 @@ struct SignalsTests {
         try await app.test(.router) { client in
             let response = try await client.execute(uri: "/signals", method: .post)
             #expect(response.status == .ok)
-            let decoded = try JSONDecoder().decode(Signals.self, from: response.body)
+            let decoded = try JSONDecoder().decode(Signals.self, from: Data(response.body.readableBytesView))
             #expect(decoded == Signals())
         }
     }
