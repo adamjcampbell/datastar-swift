@@ -7,7 +7,7 @@ private let indexHTML: String = {
     return try! String(contentsOf: url, encoding: .utf8)
 }()
 
-private struct HelloSignals: Decodable {
+private struct HelloSignals: Decodable, Sendable {
     var delay: Double
 }
 
@@ -24,16 +24,12 @@ struct HelloWorldApp {
             )
         }
 
-        router.get("/hello-world") { request, context -> Response in
-            var request = request
-            let signals = try await request.datastarSignals(as: HelloSignals.self, context: context)
+        router.datastarGet("/hello-world", signals: HelloSignals.self) { signals, sse in
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
-            return .datastarSSE { sse in
-                for i in 1...message.count {
-                    try await sse.patchElements(#"<div id="message">\#(message.prefix(i))</div>"#)
-                    try await Task.sleep(for: .milliseconds(delayMs))
-                }
+            for i in 1...message.count {
+                try await sse.patchElements(#"<div id="message">\#(message.prefix(i))</div>"#)
+                try await Task.sleep(for: .milliseconds(delayMs))
             }
         }
 

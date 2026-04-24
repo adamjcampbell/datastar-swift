@@ -47,6 +47,33 @@ router.get("/stream") { _, _ -> Response in
 
 `sse.emit(_:)` accepts any pre-built `DatastarEventConvertible` value — useful with the flat-kwargs factories (`.patchElements("<p/>", selector: "#x")`) or `DatastarEvent.PatchElements(...)` struct literals.
 
+### Route sugar
+
+Most Datastar routes decode signals and return an SSE response. The `RouterMethods` extension collapses that four-line scaffold into a single call:
+
+```swift
+router.datastarGet("/hello-world", signals: HelloSignals.self) { signals, sse in
+    for i in 1...message.count {
+        try await sse.patchElements(#"<div id="message">\#(message.prefix(i))</div>"#)
+        try await Task.sleep(for: .milliseconds(Int(signals.delay)))
+    }
+}
+```
+
+Equivalent without the sugar:
+
+```swift
+router.get("/hello-world") { request, context -> Response in
+    var request = request
+    let signals = try await request.datastarSignals(as: HelloSignals.self, context: context)
+    return .datastarSSE { sse in
+        // ...
+    }
+}
+```
+
+`datastarOn(_:method:signals:use:)` is the primitive; `datastarGet` / `datastarPost` / `datastarPut` / `datastarPatch` / `datastarDelete` are one-liner wrappers over it. Routes that need `context` (auth, tracing) or no signals fall back to the composable primitives above.
+
 See [`Examples/`](./Examples) for complete, runnable Hummingbird integrations.
 
 ### Events
