@@ -25,7 +25,7 @@ Then add the targets you need to your target's dependencies:
 | Target | When to use |
 |--------|-------------|
 | `Datastar` | Value types (`DatastarEvent`, payload structs), wire-format primitives, generic `ServerSentEventGenerator<Writer>` — no HTTP framework dependency |
-| `DatastarHummingbird` | Hummingbird 2 integration: `Response.datastarSSE` (specializes the generator to `any ResponseBodyWriter`) + method-aware `request.datastarSignals` |
+| `DatastarHummingbird` | Hummingbird 2 integration: `Response.datastarSSE` (specializes the generator to `any ResponseBodyWriter`), method-aware `request.datastarSignals`, and `router.datastarGet` / `datastarPost` / `datastarOn` route sugar |
 
 To integrate with another server framework, specialize `ServerSentEventGenerator<YourWriter>` with a sink that pushes bytes into your framework's response-body primitive. See the Hummingbird adapter for a one-liner reference implementation.
 
@@ -164,7 +164,7 @@ See [`Examples/README.md`](./Examples/README.md) for details.
 > **Disclaimer:** This library was developed with LLM (AI) assistance. At alpha stage, documentation and implementation details may be incorrect or misleading in places. Please verify anything critical against the [Datastar specification](https://data-star.dev) and open an issue if you find something wrong.
 
 - `Datastar` — value types, ADR-named generic `ServerSentEventGenerator<Writer>`, wire-format encoding, complete
-- `DatastarHummingbird` — Hummingbird 2 adapter with `Response.datastarSSE` and method-aware `request.datastarSignals`, complete
+- `DatastarHummingbird` — Hummingbird 2 adapter with `Response.datastarSSE`, method-aware `request.datastarSignals`, and `router.datastarGet`/`Post`/`Put`/`Patch`/`Delete`/`On` route sugar, complete
 
 Planned for a future release: Vapor adapter.
 
