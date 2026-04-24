@@ -1,8 +1,17 @@
 # 0001 — SSE API shape: push vs. pull
 
-**Status:** accepted
+**Status:** superseded by [0002](./0002-adr-alignment.md)
 **Date:** 2026-04-20
-**Shipping version impacted:** v0.2 (v0.1 remains as-is)
+**Shipping version impacted:** pre-release iteration only
+
+> **Note:** This record captures the SSE-API-shape investigation that led
+> up to `v0.1.0-alpha.1`. The current shipping design (`v0.2.0-alpha.1`)
+> replaced the channel-backed stream and the sink-closure generator with
+> a generic `~Copyable` `ServerSentEventGenerator<Writer>`; see
+> [0002-adr-alignment.md](./0002-adr-alignment.md) for the reasoning and
+> the current shape. The postscripts below are historical and
+> intentionally use internal iteration labels (v0.2.x / v0.3.x) that
+> were never cut as releases.
 
 ## Background
 

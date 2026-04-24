@@ -46,19 +46,20 @@ private func entryHTML(status: Status, index: Int) -> String {
     return #"<li class="\#(status.rawValue)">[\#(ts)] \#(status.rawValue) #\#(index)</li>"#
 }
 
+private typealias HummingbirdSSE = ServerSentEventGenerator<any ResponseBodyWriter>
+
 private func appendActivity(
     status: Status,
     index: Int,
     signals: inout ActivitySignals,
-    writer: inout any ResponseBodyWriter
+    sse: inout HummingbirdSSE
 ) async throws {
     signals.bump(status)
-    try await writer.emit(.patchElements(
+    try await sse.patchElements(
         entryHTML(status: status, index: index),
-        selector: "#feed",
-        mode: .prepend
-    ))
-    try await writer.emit(try .patchSignals(encoding: signals))
+        options: .init(selector: "#feed", mode: .prepend)
+    )
+    try await sse.emit(try DatastarEvent.patchSignals(encoding: signals))
 }
 
 @main
@@ -78,9 +79,9 @@ struct ActivityFeedApp {
             router.post("/event/\(status.rawValue)") { request, context -> Response in
                 var req = request
                 let initialSignals = try await req.datastarSignals(as: ActivitySignals.self, context: context)
-                return .datastarSSE { [initialSignals] writer in
+                return .datastarSSE { [initialSignals] sse in
                     var signals = initialSignals
-                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, writer: &writer)
+                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, sse: &sse)
                 }
             }
         }
@@ -90,11 +91,11 @@ struct ActivityFeedApp {
             let initialSignals = try await req.datastarSignals(as: ActivitySignals.self, context: context)
             let count = max(1, min(50, initialSignals.count))
             let interval = max(0, min(2000, initialSignals.interval))
-            return .datastarSSE { [initialSignals] writer in
+            return .datastarSSE { [initialSignals] sse in
                 var signals = initialSignals
                 for _ in 0..<count {
                     let status = Status.allCases.randomElement() ?? .info
-                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, writer: &writer)
+                    try await appendActivity(status: status, index: signals.total + 1, signals: &signals, sse: &sse)
                     try await Task.sleep(for: .milliseconds(interval))
                 }
             }

@@ -6,9 +6,7 @@ This directory is a separate Swift package to keep example dependencies separate
 
 ## Swift toolchain
 
-These examples require **Swift 6.2 or later**. Install via [swift.org/install](https://www.swift.org/install/).
-
-On macOS, Swift 6.2+ ships with Xcode 26 and later.
+These examples require **Swift 6.0 or later**. Install via [swift.org/install](https://www.swift.org/install/).
 
 ## Running
 
@@ -26,7 +24,7 @@ The browser loads the Datastar client from the official CDN (`https://cdn.jsdeli
 
 Opens a page with a delay input and a Start button; clicking Start issues `GET /hello-world?datastar=…`, and the server streams "Hello, world!" one character at a time by emitting a `datastar-patch-elements` frame per character.
 
-**Features exercised:** `Response.datastarSSE { writer in ... }` trailing-closure API, `.patchElements(_:)` (default outer merge), `request.datastarSignals(as:)` to decode GET signals.
+**Features exercised:** `router.datastarGet(_:signals:use:)` route sugar, `sse.patchElements(_:)` (default outer merge), GET-dispatched signal decoding via the method-aware extractor.
 
 ## ActivityFeedExample
 
@@ -34,4 +32,4 @@ Port of [datastar-rust's axum-activity-feed](https://github.com/starfederation/d
 
 The server is stateless: counter values live in the client's Datastar signals. Each request POSTs the current counters as JSON; the server increments them and sends the updated values back via a `patch-signals` frame.
 
-**Features exercised:** `.patchElements(_:selector:mode:)` with `.prepend`, `.patchSignals(encoding:)` for a `Codable` struct, `request.datastarSignals(as:context:)` to decode POST body signals, multiple events per request with timing.
+**Features exercised:** `Response.datastarSSE { sse in ... }` directly (the composable primitive, for a route that passes the generator into a helper that also receives mutable signals state), `sse.patchElements(_:options:)` with `.prepend`, `.emit(_:)` with `DatastarEvent.patchSignals(encoding:)` for a `Codable` struct, `request.datastarSignals(as:context:)` to decode POST body signals, multiple events per request with timing.

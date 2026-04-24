@@ -12,32 +12,16 @@ let package = Package(
     ],
     products: [
         .library(name: "Datastar", targets: ["Datastar"]),
-        .library(name: "DatastarStream", targets: ["DatastarStream"]),
         .library(name: "DatastarHummingbird", targets: ["DatastarHummingbird"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-async-algorithms.git", from: "1.1.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", "2.0.0"..<"3.0.0"),
     ],
     targets: [
         .target(
             name: "Datastar",
             dependencies: [],
-            path: "Sources/Datastar",
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-            ]
-        ),
-        .target(
-            name: "DatastarStream",
-            dependencies: [
-                .target(name: "Datastar"),
-                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
-            ],
-            path: "Sources/DatastarStream",
-            swiftSettings: [
-                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-            ]
+            path: "Sources/Datastar"
         ),
         .target(
             name: "DatastarHummingbird",
@@ -56,9 +40,13 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "DatastarStreamTests",
-            dependencies: ["DatastarStream"],
-            path: "Tests/DatastarStreamTests"
+            name: "DatastarHummingbirdTests",
+            dependencies: [
+                "DatastarHummingbird",
+                .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
+            path: "Tests/DatastarHummingbirdTests"
         ),
     ],
     swiftLanguageModes: [.v6]

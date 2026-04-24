@@ -6,8 +6,9 @@ import Foundation
 /// typically construct these via the ergonomic static methods
 /// (`.patchElements(...)`, `.patchSignals(...)`, `.executeScript(...)`) or
 /// the nested payload structs (`DatastarEvent.PatchElements(...)`), and emit
-/// them through either a `DatastarSSEStream` trailing-closure init or any
-/// `AsyncSequence` of `DatastarEventConvertible` values.
+/// them through a `ServerSentEventGenerator` — either the Hummingbird
+/// specialization (`DatastarHummingbird`) or a custom framework adapter
+/// built on the generic core.
 public enum DatastarEvent: Sendable {
     case patchElements(PatchElements)
     case patchSignals(PatchSignals)
@@ -18,104 +19,118 @@ public enum DatastarEvent: Sendable {
 
 extension DatastarEvent {
     public struct PatchElements: Sendable {
-        public var html: String
-        public var selector: String?
-        public var mode: ElementPatchMode
-        public var useViewTransition: Bool
-        public var namespace: Namespace
-        public var eventID: String?
-        public var retryDuration: Duration?
+        public struct Options: Sendable {
+            public var selector: String?
+            public var mode: ElementPatchMode
+            public var useViewTransition: Bool
+            public var namespace: Namespace
+            public var eventID: String?
+            public var retryDuration: Duration?
 
-        public init(
-            _ html: String,
-            selector: String? = nil,
-            mode: ElementPatchMode = .outer,
-            useViewTransition: Bool = false,
-            namespace: Namespace = .html,
-            eventID: String? = nil,
-            retryDuration: Duration? = nil
-        ) {
-            self.html = html
-            self.selector = selector
-            self.mode = mode
-            self.useViewTransition = useViewTransition
-            self.namespace = namespace
-            self.eventID = eventID
-            self.retryDuration = retryDuration
+            public init(
+                selector: String? = nil,
+                mode: ElementPatchMode = .outer,
+                useViewTransition: Bool = false,
+                namespace: Namespace = .html,
+                eventID: String? = nil,
+                retryDuration: Duration? = nil
+            ) {
+                self.selector = selector
+                self.mode = mode
+                self.useViewTransition = useViewTransition
+                self.namespace = namespace
+                self.eventID = eventID
+                self.retryDuration = retryDuration
+            }
+        }
+
+        public var elements: String
+        public var options: Options
+
+        public init(_ elements: String = "", options: Options = .init()) {
+            self.elements = elements
+            self.options = options
         }
     }
 
     public struct PatchSignals: Sendable {
-        public var json: String
-        public var onlyIfMissing: Bool
-        public var eventID: String?
-        public var retryDuration: Duration?
+        public struct Options: Sendable {
+            public var onlyIfMissing: Bool
+            public var eventID: String?
+            public var retryDuration: Duration?
 
-        public init(
-            _ json: String,
-            onlyIfMissing: Bool = false,
-            eventID: String? = nil,
-            retryDuration: Duration? = nil
-        ) {
-            self.json = json
-            self.onlyIfMissing = onlyIfMissing
-            self.eventID = eventID
-            self.retryDuration = retryDuration
+            public init(
+                onlyIfMissing: Bool = false,
+                eventID: String? = nil,
+                retryDuration: Duration? = nil
+            ) {
+                self.onlyIfMissing = onlyIfMissing
+                self.eventID = eventID
+                self.retryDuration = retryDuration
+            }
         }
 
-        /// Serialize an `Encodable` value to JSON signals.
-        /// Prepositional label avoids type-inference ambiguity with the `(_ json: String)` init.
+        public var signals: String
+        public var options: Options
+
+        public init(_ signals: String, options: Options = .init()) {
+            self.signals = signals
+            self.options = options
+        }
+
+        /// Serialize an `Encodable` value to a JSON signals frame.
+        /// Prepositional label avoids type-inference ambiguity with `(_ signals: String)`.
         public init<Value: Encodable>(
             encoding value: Value,
-            onlyIfMissing: Bool = false,
-            eventID: String? = nil,
-            retryDuration: Duration? = nil,
+            options: Options = .init(),
             encoder: JSONEncoder = JSONEncoder()
         ) throws {
             let data = try encoder.encode(value)
             guard let json = String(data: data, encoding: .utf8) else {
                 throw CocoaError(.fileReadInapplicableStringEncoding)
             }
-            self.init(
-                json,
-                onlyIfMissing: onlyIfMissing,
-                eventID: eventID,
-                retryDuration: retryDuration
-            )
+            self.init(json, options: options)
         }
     }
 
     /// Sugar over `PatchElements` that injects a `<script>` tag appended to `<body>`.
     /// By default the script removes itself after execution via `data-effect="el.remove()"`.
     public struct ExecuteScript: Sendable {
-        public var script: String
-        public var autoRemove: Bool
-        public var attributes: [String: String]
-        public var eventID: String?
-        public var retryDuration: Duration?
+        public struct Options: Sendable {
+            public var autoRemove: Bool
+            public var attributes: [String]
+            public var eventID: String?
+            public var retryDuration: Duration?
 
-        public init(
-            _ script: String,
-            autoRemove: Bool = true,
-            attributes: [String: String] = [:],
-            eventID: String? = nil,
-            retryDuration: Duration? = nil
-        ) {
+            public init(
+                autoRemove: Bool = true,
+                attributes: [String] = [],
+                eventID: String? = nil,
+                retryDuration: Duration? = nil
+            ) {
+                self.autoRemove = autoRemove
+                self.attributes = attributes
+                self.eventID = eventID
+                self.retryDuration = retryDuration
+            }
+        }
+
+        public var script: String
+        public var options: Options
+
+        public init(_ script: String, options: Options = .init()) {
             self.script = script
-            self.autoRemove = autoRemove
-            self.attributes = attributes
-            self.eventID = eventID
-            self.retryDuration = retryDuration
+            self.options = options
         }
     }
 }
 
-// MARK: - Ergonomic static constructors
+// MARK: - Ergonomic static constructors (flat-kwargs sugar)
 
 extension DatastarEvent {
     /// Patch HTML elements into the DOM on the client.
     public static func patchElements(
-        _ html: String,
+        _ elements: String = "",
         selector: String? = nil,
         mode: ElementPatchMode = .outer,
         useViewTransition: Bool = false,
@@ -124,13 +139,15 @@ extension DatastarEvent {
         retryDuration: Duration? = nil
     ) -> DatastarEvent {
         .patchElements(PatchElements(
-            html,
-            selector: selector,
-            mode: mode,
-            useViewTransition: useViewTransition,
-            namespace: namespace,
-            eventID: eventID,
-            retryDuration: retryDuration
+            elements,
+            options: .init(
+                selector: selector,
+                mode: mode,
+                useViewTransition: useViewTransition,
+                namespace: namespace,
+                eventID: eventID,
+                retryDuration: retryDuration
+            )
         ))
     }
 
@@ -144,25 +161,29 @@ extension DatastarEvent {
     ) throws -> DatastarEvent {
         .patchSignals(try PatchSignals(
             encoding: value,
-            onlyIfMissing: onlyIfMissing,
-            eventID: eventID,
-            retryDuration: retryDuration,
+            options: .init(
+                onlyIfMissing: onlyIfMissing,
+                eventID: eventID,
+                retryDuration: retryDuration
+            ),
             encoder: encoder
         ))
     }
 
     /// Patch signals using a pre-serialized JSON string.
     public static func patchSignalsJSON(
-        _ json: String,
+        _ signals: String,
         onlyIfMissing: Bool = false,
         eventID: String? = nil,
         retryDuration: Duration? = nil
     ) -> DatastarEvent {
         .patchSignals(PatchSignals(
-            json,
-            onlyIfMissing: onlyIfMissing,
-            eventID: eventID,
-            retryDuration: retryDuration
+            signals,
+            options: .init(
+                onlyIfMissing: onlyIfMissing,
+                eventID: eventID,
+                retryDuration: retryDuration
+            )
         ))
     }
 
@@ -171,16 +192,18 @@ extension DatastarEvent {
     public static func executeScript(
         _ script: String,
         autoRemove: Bool = true,
-        attributes: [String: String] = [:],
+        attributes: [String] = [],
         eventID: String? = nil,
         retryDuration: Duration? = nil
     ) -> DatastarEvent {
         .executeScript(ExecuteScript(
             script,
-            autoRemove: autoRemove,
-            attributes: attributes,
-            eventID: eventID,
-            retryDuration: retryDuration
+            options: .init(
+                autoRemove: autoRemove,
+                attributes: attributes,
+                eventID: eventID,
+                retryDuration: retryDuration
+            )
         ))
     }
 }
@@ -189,9 +212,11 @@ extension DatastarEvent {
 
 /// A type that can be converted to a `DatastarEvent`.
 ///
-/// Lets `DatastarSSEStream.Emitter` and `DatastarSSEStream.init(_ events:)` accept
-/// both the enum's case shorthand (e.g. `.patchElements(...)`) and bare
-/// payload structs (e.g. `DatastarEvent.PatchElements(...)`) uniformly.
+/// Lets `ServerSentEventGenerator.emit(_:)` accept both the enum-case
+/// shorthand (`.patchElements(...)`) and bare payload structs
+/// (`DatastarEvent.PatchElements(...)`) uniformly, so events pulled from
+/// an upstream `AsyncSequence` or built via the flat-kwargs factories
+/// plug in without conversion.
 public protocol DatastarEventConvertible: Sendable {
     func toDatastarEvent() -> DatastarEvent
 }
@@ -212,105 +237,105 @@ extension DatastarEvent.ExecuteScript: DatastarEventConvertible {
     public func toDatastarEvent() -> DatastarEvent { .executeScript(self) }
 }
 
-// MARK: - Wire-format conversion (internal)
+// MARK: - Wire-format conversion
 
 extension DatastarEvent {
-    /// Build the wire-format SSE event for use in custom framework adapters.
-    public func toWireEvent() -> SSEEvent {
+    /// Build the wire-format SSE frame. Internal plumbing used by
+    /// `ServerSentEventGenerator` to produce on-wire bytes.
+    func toServerSentEvent() -> ServerSentEvent {
         switch self {
-        case .patchElements(let p): return p.toWireEvent()
-        case .patchSignals(let p):  return p.toWireEvent()
-        case .executeScript(let e): return e.toWireEvent()
+        case .patchElements(let p): return p.toServerSentEvent()
+        case .patchSignals(let p):  return p.toServerSentEvent()
+        case .executeScript(let e): return e.toServerSentEvent()
         }
     }
 }
 
 extension DatastarEvent.PatchElements {
-    internal func toWireEvent() -> SSEEvent {
+    func toServerSentEvent() -> ServerSentEvent {
         var data: [String] = []
-        if let selector, !selector.isEmpty {
+        if let selector = options.selector, !selector.isEmpty {
             data.append(DatalineLiteral.selector + selector)
         }
-        if mode != .default {
-            data.append(DatalineLiteral.mode + mode.rawValue)
+        if options.mode != .default {
+            data.append(DatalineLiteral.mode + options.mode.rawValue)
         }
-        if namespace != .default {
-            data.append(DatalineLiteral.namespace + namespace.rawValue)
+        if options.namespace != .default {
+            data.append(DatalineLiteral.namespace + options.namespace.rawValue)
         }
-        if useViewTransition != DatastarDefaults.elementsUseViewTransitions {
-            data.append(DatalineLiteral.useViewTransition + String(useViewTransition))
+        if options.useViewTransition != DatastarDefaults.elementsUseViewTransitions {
+            data.append(DatalineLiteral.useViewTransition + String(options.useViewTransition))
         }
-        if !html.isEmpty {
-            for line in html.split(separator: "\n", omittingEmptySubsequences: false) {
+        if !elements.isEmpty {
+            for line in elements.split(separator: "\n", omittingEmptySubsequences: false) {
                 data.append(DatalineLiteral.elements + String(line))
             }
         }
-        return SSEEvent(
+        return ServerSentEvent(
             name: DatastarEventType.patchElements.rawValue,
-            id: eventID,
-            retry: retryDuration,
+            id: options.eventID,
+            retry: options.retryDuration?.omittingSSERetryDefault,
             data: data
         )
     }
 }
 
 extension DatastarEvent.PatchSignals {
-    internal func toWireEvent() -> SSEEvent {
+    func toServerSentEvent() -> ServerSentEvent {
         var data: [String] = []
-        if onlyIfMissing != DatastarDefaults.patchSignalsOnlyIfMissing {
-            data.append(DatalineLiteral.onlyIfMissing + String(onlyIfMissing))
+        if options.onlyIfMissing != DatastarDefaults.patchSignalsOnlyIfMissing {
+            data.append(DatalineLiteral.onlyIfMissing + String(options.onlyIfMissing))
         }
-        for line in json.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in signals.split(separator: "\n", omittingEmptySubsequences: false) {
             data.append(DatalineLiteral.signals + String(line))
         }
-        return SSEEvent(
+        return ServerSentEvent(
             name: DatastarEventType.patchSignals.rawValue,
-            id: eventID,
-            retry: retryDuration,
+            id: options.eventID,
+            retry: options.retryDuration?.omittingSSERetryDefault,
             data: data
         )
     }
 }
 
 extension DatastarEvent.ExecuteScript {
-    internal func toWireEvent() -> SSEEvent {
-        // Build a <script> element with the configured attributes and optional
-        // auto-remove behavior, then emit as patch-elements with mode=.append
-        // targeting <body>. Matches the byte-for-byte wire format of the Go
-        // and Rust SDKs for the same inputs.
-        var attrs = attributes
-        if autoRemove && attrs["data-effect"] == nil {
-            attrs["data-effect"] = "el.remove()"
-        }
+    func toServerSentEvent() -> ServerSentEvent {
+        // Render a <script> element and emit it as a patch-elements frame
+        // with selector="body", mode=.append. `data-effect="el.remove()"`
+        // is auto-injected when `autoRemove` is true and the caller hasn't
+        // supplied their own `data-effect`. User-supplied attributes are
+        // written in the order they were given.
         var tag = "<script"
-        for key in attrs.keys.sorted() {
-            tag += " \(key)=\"\(Self.htmlAttrEscape(attrs[key]!))\""
+        if options.autoRemove
+            && !options.attributes.contains(where: { $0.hasPrefix("data-effect=") })
+        {
+            tag += " data-effect=\"el.remove()\""
+        }
+        for attr in options.attributes {
+            tag += " " + attr
         }
         tag += ">\(script)</script>"
 
         let patch = DatastarEvent.PatchElements(
             tag,
-            selector: "body",
-            mode: .append,
-            eventID: eventID,
-            retryDuration: retryDuration
+            options: .init(
+                selector: "body",
+                mode: .append,
+                eventID: options.eventID,
+                retryDuration: options.retryDuration
+            )
         )
-        return patch.toWireEvent()
+        return patch.toServerSentEvent()
     }
+}
 
-    private static func htmlAttrEscape(_ s: String) -> String {
-        var out = ""
-        out.reserveCapacity(s.count)
-        for c in s {
-            switch c {
-            case "&": out += "&amp;"
-            case "<": out += "&lt;"
-            case ">": out += "&gt;"
-            case "\"": out += "&quot;"
-            case "'": out += "&#39;"
-            default: out.append(c)
-            }
-        }
-        return out
+// MARK: - Retry-default omission
+
+extension Duration {
+    /// Returns `nil` when this duration equals the SSE retry default
+    /// (1000 ms), so the `retry:` line is omitted from the wire when the
+    /// caller hasn't overridden it.
+    fileprivate var omittingSSERetryDefault: Duration? {
+        self == DatastarDefaults.sseRetryDuration ? nil : self
     }
 }

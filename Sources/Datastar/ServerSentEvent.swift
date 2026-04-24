@@ -5,43 +5,43 @@ import Foundation
 /// Matches the Datastar wire format: `event:` line, optional `id:` line,
 /// optional `retry:` line, one or more `data:` lines, terminating blank line.
 /// Line endings are `\n` to match the reference Go and TypeScript SDKs.
-public struct SSEEvent {
-    public var name: String
-    public var id: String?
-    public var retry: Duration?
-    public var data: [String]
+///
+/// Internal — the only public emission path is `ServerSentEventGenerator`.
+struct ServerSentEvent {
+    var name: String
+    var id: String?
+    var retry: Duration?
+    var data: [String]
 
-    public init(name: String, id: String? = nil, retry: Duration? = nil, data: [String]) {
+    init(name: String, id: String? = nil, retry: Duration? = nil, data: [String]) {
         self.name = name
         self.id = id
         self.retry = retry
         self.data = data
     }
-}
 
-public enum SSEEncoding {
-    /// Encode an event to its on-the-wire byte representation.
-    public static func encode(_ event: SSEEvent) -> [UInt8] {
+    /// Encode to the on-the-wire byte representation.
+    func encoded() -> [UInt8] {
         var out: [UInt8] = []
-        append(&out, "event: ")
-        append(&out, event.name)
+        Self.append(&out, "event: ")
+        Self.append(&out, name)
         out.append(0x0A) // \n
 
-        if let id = event.id, !id.isEmpty {
-            append(&out, "id: ")
-            append(&out, id)
+        if let id, !id.isEmpty {
+            Self.append(&out, "id: ")
+            Self.append(&out, id)
             out.append(0x0A)
         }
 
-        if let retry = event.retry {
-            append(&out, "retry: ")
-            append(&out, String(retry.milliseconds))
+        if let retry {
+            Self.append(&out, "retry: ")
+            Self.append(&out, String(retry.milliseconds))
             out.append(0x0A)
         }
 
-        for line in event.data {
-            append(&out, "data: ")
-            append(&out, line)
+        for line in data {
+            Self.append(&out, "data: ")
+            Self.append(&out, line)
             out.append(0x0A)
         }
 
@@ -50,7 +50,7 @@ public enum SSEEncoding {
     }
 
     @inline(__always)
-    static func append(_ buffer: inout [UInt8], _ string: String) {
+    private static func append(_ buffer: inout [UInt8], _ string: String) {
         buffer.append(contentsOf: string.utf8)
     }
 }
