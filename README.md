@@ -2,14 +2,14 @@
 
 A Swift SDK for [Datastar](https://data-star.dev) — the hypermedia-driven framework that unifies server-rendered HTML with reactive client-side signals over Server-Sent Events.
 
-This package provides a framework-agnostic core: a value-oriented Datastar-event API that emits the Datastar v1 wire format as an `AsyncSequence` of bytes, ready to plug into any Swift HTTP server (Vapor, Hummingbird, swift-nio, or a handwritten one).
+This package provides an ADR-compliant core: the Go-style `ServerSentEventGenerator` that emits Datastar v1 wire format through a pluggable byte sink, with `DatastarHummingbird` as the built-in transport and a generic core ready to specialize for other frameworks. The API matches the [Datastar SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md) literally — call sites look the same as they do in Go and TypeScript.
 
 ## Requirements
 
-- Swift 6.2+ (uses `NonisolatedNonsendingByDefault` — SE-0461)
+- Swift 6.0+ (package uses `swiftLanguageModes: [.v6]`)
 - macOS 14+, Linux, or Windows (untested; `DatastarHummingbird` requires Hummingbird v2 which does not support Windows)
 
-Install the Swift toolchain via [swiftly](https://www.swift.org/install/) (`swiftly install latest`) if you don't already have Swift 6.2 or later.
+Install the Swift toolchain via [swiftly](https://www.swift.org/install/) (`swiftly install latest`) if you don't already have Swift 6.0 or later.
 
 ## Installation
 
@@ -24,64 +24,60 @@ Then add the targets you need to your target's dependencies:
 
 | Target | When to use |
 |--------|-------------|
-| `Datastar` | Wire-format primitives only — no HTTP framework dependency |
-| `DatastarStream` | Adds `DatastarSSEStream`, an `AsyncSequence`-based SSE body |
-| `DatastarHummingbird` | Hummingbird 2 integration: `Response.datastarSSE` + `request.datastarSignals` |
+| `Datastar` | Value types (`DatastarEvent`, payload structs), wire-format primitives, generic `ServerSentEventGenerator<Writer>` — no HTTP framework dependency |
+| `DatastarHummingbird` | Hummingbird 2 integration: `Response.datastarSSE` (specializes the generator to `any ResponseBodyWriter`) + method-aware `request.datastarSignals` |
+
+To integrate with another server framework, specialize `ServerSentEventGenerator<YourWriter>` with a sink that pushes bytes into your framework's response-body primitive. See the Hummingbird adapter for a one-liner reference implementation.
 
 ## Usage
 
 ### Emit SSE events
 
-Datastar events are values (`DatastarEvent`), not method calls on a writer. Create a `DatastarSSEStream` with a trailing closure and hand it to your HTTP framework as a streaming response body (`Content-Type: text/event-stream`):
+With `DatastarHummingbird` — the closure receives an `inout` generator bound to the response-body writer:
 
 ```swift
-import DatastarStream
+import DatastarHummingbird
 
-let stream = DatastarSSEStream { emit in
-    try await emit(.patchElements(
-        #"<div id="clock">12:00</div>"#,
-        selector: "#clock",
-        mode: .inner
-    ))
-    try await Task.sleep(for: .seconds(1))
-    try await emit(try .patchSignals(encoding: ["count": 42]))
-    try await emit(.executeScript("console.log('done')"))
+router.get("/stream") { _, _ -> Response in
+    .datastarSSE { sse in
+        try await sse.patchElements("<div>Hello</div>", options: .init(selector: "#msg"))
+    }
 }
 ```
 
-You can also init `DatastarSSEStream` from any `AsyncSequence` of `DatastarEventConvertible` values.
+`sse.emit(_:)` accepts any pre-built `DatastarEventConvertible` value — useful with the flat-kwargs factories (`.patchElements("<p/>", selector: "#x")`) or `DatastarEvent.PatchElements(...)` struct literals.
 
 See [`Examples/`](./Examples) for complete, runnable Hummingbird integrations.
 
 ### Events
 
-Three event types:
+Three ADR operations, available as both methods on `ServerSentEventGenerator` and value constructors on `DatastarEvent`:
 
-- `.patchElements(html, selector:, mode:, ...)` — patch HTML into the DOM.
-- `.patchSignals(encoding: value)` / `.patchSignalsJSON(json)` — update client signals.
-- `.executeScript(script, autoRemove:, attributes:, ...)` — run JavaScript (sugar over `patchElements`).
+- `sse.patchElements(elements, options:)` / `DatastarEvent.PatchElements(_:options:)` — patch HTML into the DOM.
+- `sse.patchSignals(signals, options:)` / `DatastarEvent.PatchSignals(_:options:)` — update client signals.
+- `sse.executeScript(script, options:)` / `DatastarEvent.ExecuteScript(_:options:)` — run JavaScript (sugar over `patchElements`).
 
 Removals are expressed via the core events — no dedicated helpers:
 
 ```swift
 // Remove a DOM element:
-try await emit(.patchElements("", selector: "#gone", mode: .remove))
+try await sse.patchElements(options: .init(selector: "#gone", mode: .remove))
 
 // Remove (null out) client signals:
-try await emit(.patchSignalsJSON(#"{"stale":null}"#))
+try await sse.patchSignals(#"{"stale":null}"#)
 ```
 
 ### Decoding signals from a request
 
-**With `DatastarHummingbird`**:
+**With `DatastarHummingbird`** — one method-aware extractor for every HTTP verb:
 
 ```swift
 import DatastarHummingbird
 
-// GET/DELETE — reads the ?datastar= query parameter
-let signals = try request.datastarSignals(as: MySignals.self)
-
-// POST/PUT/PATCH — collects the body and JSON-decodes it
+// Routes automatically per ADR:
+//   GET, DELETE        → ?datastar=<json> query parameter
+//   POST, PUT, PATCH   → JSON request body
+var request = request
 let signals = try await request.datastarSignals(as: MySignals.self, context: context)
 ```
 
@@ -100,6 +96,25 @@ let raw = queryParameter("datastar") ?? "{}"
 let signals = try JSONDecoder().decode(MySignals.self, from: Data(raw.utf8))
 ```
 
+## ADR conformance
+
+datastar-swift is **ADR-first**: the public API mirrors the [Datastar SDK ADR](https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md) literally.
+
+| ADR | datastar-swift |
+|-----|----------------|
+| `ServerSentEventGenerator` | Generic `ServerSentEventGenerator<Writer>` in `Datastar` core; `DatastarHummingbird` specializes `Writer == any ResponseBodyWriter` |
+| `PatchElements(elements?, options?)` | `sse.patchElements(_:options:)` / `DatastarEvent.PatchElements(_:options:)` |
+| `PatchSignals(signals, options?)` | `sse.patchSignals(_:options:)` / `DatastarEvent.PatchSignals(_:options:)` |
+| `ExecuteScript(script, options?)` | `sse.executeScript(_:options:)` / `DatastarEvent.ExecuteScript(_:options:)` |
+| `ReadSignals(r, &signals)` (method-aware) | `request.datastarSignals(as:context:)` (method-aware) |
+| Response headers: Content-Type, Cache-Control, Connection | All three set by `Response.datastarSSE` |
+| Retry omitted when equal to default (1000 ms) | Implemented |
+| Nested options objects | Nested `PatchElements.Options` / `PatchSignals.Options` / `ExecuteScript.Options` |
+
+Flat-keyword-argument factories (`DatastarEvent.patchElements(_:selector:mode:...)`) are provided as Swift-idiomatic sugar on top of the ADR-literal core.
+
+**One language-idiomatic deviation:** `Response.datastarSSE` in `DatastarHummingbird` doesn't take a `Request` parameter, because Hummingbird route handlers already bind the request in scope. This matches the Swift-on-server adapter idiom; the ADR's "constructor accepts Request and Response" semantic is satisfied by the route handler itself.
+
 ## Examples
 
 Runnable demos live in [`Examples/`](./Examples) as a separate Swift package (so Hummingbird doesn't leak into the library's dep graph):
@@ -117,13 +132,12 @@ See [`Examples/README.md`](./Examples/README.md) for details.
 
 ## Status
 
-**Alpha** — the API is shaped and the wire format is correct, but the library is untested in production. Breaking changes are possible before v0.1.0.
+**Alpha** — the wire format and ADR-aligned API are in place, but the library is untested in production. Breaking changes are possible before v0.1.0; the ADR-alignment pass (nested `Options`, `ServerSentEventGenerator` with per-transport sinks, method-aware `datastarSignals`) is a breaking revision of `0.1.0-alpha.1`.
 
 > **Disclaimer:** This library was developed with LLM (AI) assistance. At alpha stage, documentation and implementation details may be incorrect or misleading in places. Please verify anything critical against the [Datastar specification](https://data-star.dev) and open an issue if you find something wrong.
 
-- `Datastar` — wire-format encoding, complete
-- `DatastarStream` — `DatastarSSEStream` AsyncSequence wrapper, complete
-- `DatastarHummingbird` — Hummingbird 2 adapter with `Response.datastarSSE` and `request.datastarSignals`, complete
+- `Datastar` — value types, ADR-named generic `ServerSentEventGenerator<Writer>`, wire-format encoding, complete
+- `DatastarHummingbird` — Hummingbird 2 adapter with `Response.datastarSSE` and method-aware `request.datastarSignals`, complete
 
 Planned for a future release: Vapor adapter.
 
