@@ -16,7 +16,7 @@ Install the Swift toolchain via [swiftly](https://www.swift.org/install/) (`swif
 Add to your `Package.swift`:
 
 ```swift
-// Alpha — pin to the exact pre-release tag until v0.2.0 is released
+// Alpha — pin to the exact pre-release tag until 0.2.0 is released
 .package(url: "https://github.com/adamjcampbell/datastar-swift.git", exact: "0.2.0-alpha.1")
 ```
 
@@ -159,7 +159,7 @@ See [`Examples/README.md`](./Examples/README.md) for details.
 
 ## Status
 
-**Alpha** — the wire format and ADR-aligned API are in place, but the library is untested in production. Breaking changes are possible before v0.2.0; the ADR-alignment pass (nested `Options`, `ServerSentEventGenerator` with per-transport sinks, method-aware `datastarSignals`) is a breaking revision of `0.1.0-alpha.1`.
+**Alpha** — the wire format and ADR-aligned API are in place, but the library is untested in production. Breaking changes are possible before 0.2.0; the ADR-alignment pass (nested `Options`, `ServerSentEventGenerator` with per-transport sinks, method-aware `datastarSignals`) is a breaking revision of `0.1.0-alpha.1`.
 
 > **Disclaimer:** This library was developed with LLM (AI) assistance. At alpha stage, documentation and implementation details may be incorrect or misleading in places. Please verify anything critical against the [Datastar specification](https://data-star.dev) and open an issue if you find something wrong.
 
