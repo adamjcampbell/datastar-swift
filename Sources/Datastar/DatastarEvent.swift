@@ -301,12 +301,10 @@ extension DatastarEvent.PatchSignals {
 extension DatastarEvent.ExecuteScript {
     func toServerSentEvent() -> ServerSentEvent {
         // Render a <script> element and emit it as a patch-elements frame
-        // with selector=body, mode=append — the ADR rendering of
-        // ExecuteScript. `data-effect="el.remove()"` is auto-injected when
-        // `autoRemove` is true and the caller hasn't supplied their own
-        // `data-effect`. User-supplied attributes appear in the given order;
-        // the ADR mandates that the attributes be added to the tag but does
-        // not constrain their sequence.
+        // with selector="body", mode=.append. `data-effect="el.remove()"`
+        // is auto-injected when `autoRemove` is true and the caller hasn't
+        // supplied their own `data-effect`. User-supplied attributes are
+        // written in the order they were given.
         var tag = "<script"
         if options.autoRemove
             && !options.attributes.contains(where: { $0.hasPrefix("data-effect=") })
@@ -334,8 +332,9 @@ extension DatastarEvent.ExecuteScript {
 // MARK: - Retry-default omission
 
 extension Duration {
-    /// Returns `nil` when this duration equals the SSE retry default (1000 ms),
-    /// matching the ADR wire-format rule "omit `retry:` when equal to the default".
+    /// Returns `nil` when this duration equals the SSE retry default
+    /// (1000 ms), so the `retry:` line is omitted from the wire when the
+    /// caller hasn't overridden it.
     fileprivate var omittingSSERetryDefault: Duration? {
         self == DatastarDefaults.sseRetryDuration ? nil : self
     }
