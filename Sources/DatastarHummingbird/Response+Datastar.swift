@@ -1,44 +1,43 @@
 import Hummingbird
 
-// MARK: - ResponseBodyWriter
-
-extension ResponseBodyWriter {
-    /// Encode and write a Datastar event as an SSE frame.
-    public mutating func emit(_ event: DatastarEvent) async throws {
-        try await write(ByteBuffer(bytes: SSEEncoding.encode(event.toWireEvent())))
-    }
-
-    /// Encode and write any `DatastarEventConvertible` value as an SSE frame.
-    public mutating func emit<E: DatastarEventConvertible>(_ event: E) async throws {
-        try await write(ByteBuffer(bytes: SSEEncoding.encode(event.toDatastarEvent().toWireEvent())))
-    }
-}
-
-// MARK: - Response
-
 extension Response {
     /// Create a Datastar SSE streaming response.
     ///
-    /// Hummingbird drives the write loop inline — no background Task is spawned.
-    /// Use `writer.emit(...)` inside the closure to send events.
+    /// The producer closure receives an `inout ServerSentEventGenerator` whose
+    /// writer is bound to Hummingbird's response-body writer —
+    /// `sse.patchElements(...)`, `sse.patchSignals(...)`, and
+    /// `sse.executeScript(...)` emit on the wire immediately. Hummingbird
+    /// drives the write loop inline; no background Task is spawned and no
+    /// class box or `@unchecked Sendable` is involved — writer state flows
+    /// through `inout` from Hummingbird down into `sse.writer` and back to
+    /// `finish()`.
+    ///
+    /// Sets the three ADR-mandated SSE response headers:
+    /// `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
+    /// `Connection: keep-alive`.
     ///
     /// ```swift
-    /// router.get("/stream") { request, _ -> Response in
-    ///     let signals = try request.datastarSignals(as: MySignals.self)
-    ///     return .datastarSSE { writer in
-    ///         try await writer.emit(.patchElements("<div>Hello</div>"))
+    /// router.get("/stream") { request, context -> Response in
+    ///     let signals = try await request.datastarSignals(as: MySignals.self, context: context)
+    ///     return .datastarSSE { sse in
+    ///         try await sse.patchElements("<div>Hello</div>", options: .init(selector: "#msg"))
     ///     }
     /// }
     /// ```
     public static func datastarSSE(
-        _ write: @escaping @Sendable (inout any ResponseBodyWriter) async throws -> Void
+        _ perform: @escaping @Sendable (inout ServerSentEventGenerator<any ResponseBodyWriter>) async throws -> Void
     ) -> Response {
         Response(
             status: .ok,
-            headers: [.contentType: "text/event-stream", .cacheControl: "no-cache"],
+            headers: [
+                .contentType: "text/event-stream",
+                .cacheControl: "no-cache",
+                .connection: "keep-alive",
+            ],
             body: ResponseBody { writer in
-                try await write(&writer)
-                try await writer.finish(nil)
+                var sse = ServerSentEventGenerator<any ResponseBodyWriter>(writer)
+                try await perform(&sse)
+                try await sse.writer.finish(nil)
             }
         )
     }

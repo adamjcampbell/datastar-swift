@@ -24,13 +24,14 @@ struct HelloWorldApp {
             )
         }
 
-        router.get("/hello-world") { request, _ -> Response in
-            let signals = try request.datastarSignals(as: HelloSignals.self)
+        router.get("/hello-world") { request, context -> Response in
+            var request = request
+            let signals = try await request.datastarSignals(as: HelloSignals.self, context: context)
             let message = "Hello, world!"
             let delayMs = max(0, Int(signals.delay))
-            return .datastarSSE { writer in
+            return .datastarSSE { sse in
                 for i in 1...message.count {
-                    try await writer.emit(.patchElements(#"<div id="message">\#(message.prefix(i))</div>"#))
+                    try await sse.patchElements(#"<div id="message">\#(message.prefix(i))</div>"#)
                     try await Task.sleep(for: .milliseconds(delayMs))
                 }
             }

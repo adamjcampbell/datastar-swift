@@ -9,13 +9,13 @@ struct DatastarEventTests {
         renderBytes(event)
     }
 
-    // Overload for Rust-style struct-literal call sites (PatchElements, PatchSignals, ExecuteScript):
+    // Overload for struct-literal call sites (PatchElements, PatchSignals, ExecuteScript):
     static func renderToString<E: DatastarEventConvertible>(_ event: E) -> String {
         renderBytes(event)
     }
 
     private static func renderBytes(_ event: some DatastarEventConvertible) -> String {
-        let bytes = SSEEncoding.encode(event.toDatastarEvent().toWireEvent())
+        let bytes = event.toDatastarEvent().toServerSentEvent().encoded()
         return String(decoding: bytes, as: UTF8.self)
     }
 
@@ -99,7 +99,25 @@ struct DatastarEventTests {
         #expect(out.contains("retry: 5000\n"))
     }
 
-    @Test("Remove via patchElements with mode=.remove — the Rust-style way")
+    @Test("Retry equal to the SSE default (1000 ms) is omitted on the wire")
+    func patchElementsRetryDefaultOmitted() {
+        let out = Self.renderToString(.patchElements(
+            "<p>x</p>",
+            retryDuration: .milliseconds(1000)
+        ))
+        #expect(!out.contains("retry:"))
+    }
+
+    @Test("Retry different from the default still emits the retry line")
+    func patchElementsRetryNonDefaultEmitted() {
+        let out = Self.renderToString(.patchElements(
+            "<p>x</p>",
+            retryDuration: .milliseconds(2500)
+        ))
+        #expect(out.contains("retry: 2500\n"))
+    }
+
+    @Test("Remove via patchElements with mode=.remove")
     func removeViaPatchElements() {
         let out = Self.renderToString(.patchElements("", selector: "#gone", mode: .remove))
         #expect(out == """
@@ -138,7 +156,10 @@ struct DatastarEventTests {
 
     @Test("Struct-literal call site produces same bytes as the enum-case shorthand")
     func structLiteralParity() {
-        let viaStruct = DatastarEvent.PatchElements("<p>x</p>", selector: "#t", mode: .inner)
+        let viaStruct = DatastarEvent.PatchElements(
+            "<p>x</p>",
+            options: .init(selector: "#t", mode: .inner)
+        )
         let viaCase = DatastarEvent.patchElements("<p>x</p>", selector: "#t", mode: .inner)
         let a = Self.renderToString(viaStruct)
         let b = Self.renderToString(viaCase)
@@ -178,7 +199,7 @@ struct DatastarEventTests {
         """)
     }
 
-    @Test("Remove signals via JSON null values — the Rust-style way")
+    @Test("Remove signals via JSON null values")
     func removeSignalsViaJSON() {
         let out = Self.renderToString(.patchSignalsJSON(#"{"stale":null}"#))
         #expect(out.contains(#"data: signals {"stale":null}"#))
@@ -206,14 +227,33 @@ struct DatastarEventTests {
         #expect(!out.contains("data-effect"))
     }
 
-    @Test("executeScript emits user-provided attributes in sorted order with HTML escaping")
+    @Test("executeScript emits user-provided attributes in given order (ADR [String])")
     func executeScriptAttributes() {
         let out = Self.renderToString(.executeScript(
             "boot()",
             autoRemove: false,
-            attributes: ["type": "module", "data-src": "x & y"]
+            attributes: [#"type="module""#, #"data-src="x""#]
         ))
-        #expect(out.contains(#"data: elements <script data-src="x &amp; y" type="module">boot()</script>"#))
+        #expect(out.contains(#"data: elements <script type="module" data-src="x">boot()</script>"#))
+    }
+
+    @Test("executeScript supports valueless boolean attributes (e.g., defer)")
+    func executeScriptBooleanAttribute() {
+        let out = Self.renderToString(.executeScript(
+            "ready()",
+            attributes: ["defer"]
+        ))
+        #expect(out.contains(#"<script data-effect="el.remove()" defer>ready()</script>"#))
+    }
+
+    @Test("executeScript honors a user-provided data-effect and does not inject one")
+    func executeScriptUserDataEffectPreserved() {
+        let out = Self.renderToString(.executeScript(
+            "x()",
+            attributes: [#"data-effect="custom()""#]
+        ))
+        #expect(out.contains(#"<script data-effect="custom()">x()</script>"#))
+        #expect(!out.contains("el.remove()"))
     }
 
     @Test("executeScript splits a multi-line script onto multiple elements data lines")
